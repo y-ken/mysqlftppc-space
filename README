@@ -1,0 +1,8 @@
+* SPEC
+This plugin implements white-space tokenizer. As of MySQL SQL syntax, you can
+query in natural langauge mode or in boolean mode.
+
+Both natural language mode and boolean mode use unicode internally, and
+indexed by Unicode Normalization. The encoding conversion is done automatically.
+
+

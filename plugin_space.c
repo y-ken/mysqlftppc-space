@@ -126,7 +126,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       param->mysql_add_word(param, tmpbuffer, tlen, &instinfo); // emit
     }
     
-    my_no_flags_free(tmpbuffer);
+    my_free(tmpbuffer,MYF(0));
   }else{
     // Natural mode query / Indexing
     int isspace_prev=1, isspace=0; // boolean
@@ -137,17 +137,20 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     end = param->doc + param->length;
     while(pos < end){
       isspace = my_isspace(cs, *pos);
-      mbunit  = param->cs->cset->mbcharlen(cs, *pos);
+      mbunit  = param->cs->cset->mbcharlen(cs, *(uchar *)pos);
+      if(mbunit <= 0) break; // ILSEQ
+      
       if(isspace_prev && !isspace){
         wstart = pos;
       }
       if(!isspace_prev && isspace){
-        param->mysql_add_word(param, wstart, pos-wstart, NULL);
+        param->mysql_add_word(param, wstart, pos+mbunit-wstart, NULL);
+        wstart = pos+mbunit;
       }
       isspace_prev = isspace;
       pos += mbunit;
     }
-    if(!isspace_prev){
+    if(!isspace_prev && wstart < end){
       param->mysql_add_word(param, wstart, end-wstart, NULL);
     }
   }

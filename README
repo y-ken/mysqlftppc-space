@@ -6,3 +6,5 @@ Both natural language mode and boolean mode use unicode internally, and
 indexed by Unicode Normalization. The encoding conversion is done automatically.
 
 
+* TODO
+- Unicode normalization

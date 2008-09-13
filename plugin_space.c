@@ -1,3 +1,4 @@
+#include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
 
@@ -47,8 +48,8 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     instinfo = baseinfos[0] = bool_info_may;
     
     size_t tlen=0;
-    uchar *tmpbuffer;
-    tmpbuffer = (uchar*)my_malloc(param->length, MYF(0)); // TODO: This allocates too much memory. shrink later.
+    char *tmpbuffer;
+    tmpbuffer = (char*)my_malloc(param->length, MYF(0)); // TODO: This allocates too much memory. shrink later.
     
     int context=CTX_CONTROL;
     SEQFLOW sf,sf_prev = SF_BROKEN;

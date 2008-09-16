@@ -5,6 +5,8 @@ query in natural langauge mode or in boolean mode.
 Both natural language mode and boolean mode use unicode internally, and
 indexed by Unicode Normalization. The encoding conversion is done automatically.
 
+If you compiled the plugin with ICU library, you can turn on the Unicode 
+normalization supported by ICU library. To normalize in NFC, execute SQL like:
+ SET global space_unicode_normalize = 'C'
+You can set one of NONE, C, D, KC, KD (and FCD).
 
-* TODO
-- Unicode normalization

@@ -1,10 +1,11 @@
 #include "ftbool.h"
 
-SEQFLOW ctxscan(CHARSET_INFO *cs, char *src, char *src_end, my_wc_t *dst, size_t *readsize, int context){
+SEQFLOW ctxscan(CHARSET_INFO *cs, char *src, char *src_end, my_wc_t *dst, int *readsize, int context){
     *readsize = cs->cset->mb_wc(cs, dst, (uchar*)src, (uchar*)src_end);
     if(*readsize <= 0){
       return SF_BROKEN; // break;
     }
+    if(*dst=='\0') return SF_WHITE;
     
     if(!(context & CTX_ESCAPE)){
         if(*dst=='\\') return SF_ESCAPE;

@@ -24,4 +24,4 @@ static int CTX_ESCAPE  = 1;
 static int CTX_QUOTE   = 2;
 static int CTX_CONTROL = 4;
 
-SEQFLOW ctxscan(CHARSET_INFO *cs, char *src, char *src_end, my_wc_t *dst, size_t *readsize, int context);
+SEQFLOW ctxscan(CHARSET_INFO *cs, char *src, char *src_end, my_wc_t *dst, int *readsize, int context);

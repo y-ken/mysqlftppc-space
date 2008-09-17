@@ -38,20 +38,73 @@ static int space_parser_deinit(MYSQL_FTPARSER_PARAM *param __attribute__((unused
   return(0);
 }
 
+static size_t str_convert(CHARSET_INFO *cs, char *from, int from_length,
+                          CHARSET_INFO *uc, char *to,   int to_length){
+  char *rpos, *rend, *wpos, *wend;
+  my_charset_conv_mb_wc mb_wc = cs->cset->mb_wc;
+  my_charset_conv_wc_mb wc_mb = uc->cset->wc_mb;
+  my_wc_t wc;
+  
+  rpos = from;
+  rend = from + from_length;
+  wpos = to;
+  wend = to + to_length;
+  while(rpos < rend){
+    int cnvres = 0;
+    cnvres = (*mb_wc)(cs, &wc, (uchar*)rpos, (uchar*)rend);
+    if(cnvres > 0){
+      rpos += cnvres;
+    }else if(cnvres == MY_CS_ILSEQ){
+      rpos++;
+      wc = '?';
+    }else if(cnvres > MY_CS_TOOSMALL){
+      rpos += (-cnvres);
+      wc = '?';
+    }else{
+      break;
+    }
+    cnvres = (*wc_mb)(uc, wc, (uchar*)wpos, (uchar*)wend);
+    if(cnvres > 0){
+      wpos += cnvres;
+    }else{
+      break;
+    }
+  }
+  return (size_t)(wpos - to);
+}
 
 static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
 {
+  CHARSET_INFO *uc = NULL;
   CHARSET_INFO *cs = param->cs;
   char* feed = param->doc;
   size_t feed_length = (size_t)param->length;
   
-  char* nm;
-  size_t nm_length=0;
-  size_t nm_used=0;
+  uint mblen;
+  char* cv;
+  size_t cv_length=0;
+  
+  if(strcmp(cs->csname, "utf8")!=0 && strcmp(space_unicode_normalize, "NONE")!=0){
+    uc = get_charset(33,MYF(0)); // my_charset_utf8_general_ci for utf8 conversion
+  }
+  
+  // convert into UTF-8
+  if(uc){
+    // calculate mblen and malloc.
+    mblen = uc->mbmaxlen * cs->cset->numchars(cs, feed, feed+feed_length);
+    cv = my_malloc(mblen, MYF(MY_WME));
+    cv_length = mblen;
+    feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length);
+    feed = cv;
+  }
   
 #if HAVE_ICU
-  if(strcmp(cs->csname,"utf8")==0 && strcmp(space_unicode_normalize, "NONE")!=0){
-    nm_length = param->length+32;
+  // normalize
+  if(strcmp(space_unicode_normalize, "NONE")!=0){
+    char* nm;
+    size_t nm_length=0;
+    size_t nm_used=0;
+    nm_length = feed_length+32;
     nm = my_malloc(nm_length, MYF(MY_WME));
     int mode = 1;
     if(strcmp(space_unicode_normalize, "C")==0) mode = 4;
@@ -59,15 +112,35 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     if(strcmp(space_unicode_normalize, "KC")==0) mode = 5;
     if(strcmp(space_unicode_normalize, "KD")==0) mode = 3;
     if(strcmp(space_unicode_normalize, "FCD")==0) mode = 6;
-    if(uni_normalize(param->doc, param->length, nm, nm_length, &nm_used, mode)!=0){
+    if(uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode)!=0){
        nm_length=nm_used;
        nm = my_realloc(nm, nm_length, MYF(MY_WME));
-       uni_normalize(param->doc, param->length, nm, nm_length, &nm_used, mode);
+       uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode);
     }
-    feed = nm;
-    feed_length = nm_used;
+    if(cv_length){
+      cv = my_realloc(cv, nm_used, MYF(MY_WME));
+    }else{
+      cv = my_malloc(nm_used, MYF(MY_WME));
+    }
+    memcpy(cv, nm, nm_used);
+    cv_length = nm_used;
+    my_free(nm,MYF(0));
+    feed = cv;
+    feed_length = cv_length;
   }
 #endif
+  
+  if(uc){
+    // convert from UTF-8
+    mblen = cs->mbmaxlen * uc->cset->numchars(uc, feed, feed+feed_length);
+    if(cv_length){
+      cv = my_realloc(cv, mblen, MYF(MY_WME));
+    }else{
+      cv = my_malloc(mblen, MYF(MY_WME));
+    }
+    feed_length = str_convert(uc, feed, feed_length, cs, cv, cv_length);
+    feed = cv;
+  }
   
   // buffer is to be free-ed
   param->flags = MYSQL_FTFLAGS_NEED_COPY;
@@ -107,11 +180,11 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
           if(depth>16) depth=16;
           baseinfos[depth] = instinfo;
           instinfo.type = FT_TOKEN_LEFT_PAREN;
-          param->mysql_add_word(param, pos, 0, &instinfo);
+          param->mysql_add_word(param, pos, 0, &instinfo); // push LEFT_PAREN token
         }
         if(sf == SF_RIGHT_PAREN){
           instinfo.type = FT_TOKEN_RIGHT_PAREN;
-          param->mysql_add_word(param, pos, 0, &instinfo);
+          param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
           depth--;
           if(depth<0) depth=0;
         }
@@ -186,7 +259,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       param->mysql_add_word(param, wstart, end-wstart, NULL);
     }
   }
-  if(nm_used>0) my_free(nm, MYF(0));
+  if(cv_length>0) my_free(cv, MYF(0));
   return(0);
 }
 
@@ -197,6 +270,7 @@ int space_unicode_normalize_check(MYSQL_THD thd, struct st_mysql_sys_var *var, v
     
     str = value->val_str(value,buf,&len);
     if(!str) return -1;
+    if(!get_charset(33,MYF(0))) return -1; // If you don't have utf8 codec in mysql, it fails
     if(len==1){
         if(str[0]=='C'){ *(const char**)save=str; return 0;}
         if(str[0]=='D'){ *(const char**)save=str; return 0;}
@@ -214,14 +288,14 @@ int space_unicode_normalize_check(MYSQL_THD thd, struct st_mysql_sys_var *var, v
     return -1;
 }
 
-static MYSQL_SYSVAR_STR(unicode_normalize, space_unicode_normalize,
+static MYSQL_SYSVAR_STR(normalization, space_unicode_normalize,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
   "Set unicode normalization (NONE, C, D, KC, KD, FCD)",
   space_unicode_normalize_check, NULL, "NONE");
 
 static struct st_mysql_sys_var* space_system_variables[]= {
 #if HAVE_ICU
-  MYSQL_SYSVAR(unicode_normalize),
+  MYSQL_SYSVAR(normalization),
 #endif
   NULL
 };

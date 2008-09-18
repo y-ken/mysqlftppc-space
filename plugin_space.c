@@ -18,6 +18,8 @@
 #endif
 
 static char* space_unicode_normalize;
+static char* space_collation;
+static my_bool space_rawinput = FALSE;
 
 static int space_parser_plugin_init(void *arg __attribute__((unused)))
 {
@@ -76,6 +78,7 @@ static size_t str_convert(CHARSET_INFO *cs, char *from, int from_length,
 static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
 {
   CHARSET_INFO *uc = NULL;
+  CHARSET_INFO *collator = NULL;
   CHARSET_INFO *cs = param->cs;
   char* feed = param->doc;
   size_t feed_length = (size_t)param->length;
@@ -106,16 +109,17 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     size_t nm_used=0;
     nm_length = feed_length+32;
     nm = my_malloc(nm_length, MYF(MY_WME));
+    int status = 0;
     int mode = 1;
     if(strcmp(space_unicode_normalize, "C")==0) mode = 4;
     if(strcmp(space_unicode_normalize, "D")==0) mode = 2;
     if(strcmp(space_unicode_normalize, "KC")==0) mode = 5;
     if(strcmp(space_unicode_normalize, "KD")==0) mode = 3;
     if(strcmp(space_unicode_normalize, "FCD")==0) mode = 6;
-    if(uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode)!=0){
+    if(nm=uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, &status)){
        nm_length=nm_used;
        nm = my_realloc(nm, nm_length, MYF(MY_WME));
-       uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode);
+       nm=uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, &status);
     }
     if(cv_length){
       cv = my_realloc(cv, nm_used, MYF(MY_WME));
@@ -142,6 +146,31 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     feed = cv;
   }
   
+  if(strcmp(space_collation, "OFF")!=0){
+    // charset is always UCS2
+    if(strcmp(space_collation, "bin")==0) collator = get_charset(90,MYF(0));
+    if(strcmp(space_collation, "czech")==0) collator = get_charset(138,MYF(0));
+    if(strcmp(space_collation, "roman")==0) collator = get_charset(143,MYF(0));
+    if(strcmp(space_collation, "danish")==0) collator = get_charset(139,MYF(0));
+    if(strcmp(space_collation, "slovak")==0) collator = get_charset(141,MYF(0));
+    if(strcmp(space_collation, "polish")==0) collator = get_charset(133,MYF(0));
+    if(strcmp(space_collation, "spanish")==0) collator = get_charset(135,MYF(0));
+    if(strcmp(space_collation, "swedish")==0) collator = get_charset(136,MYF(0));
+    if(strcmp(space_collation, "turkish")==0) collator = get_charset(137,MYF(0));
+    if(strcmp(space_collation, "general")==0) collator = get_charset(35,MYF(0));
+    if(strcmp(space_collation, "unicode")==0) collator = get_charset(128,MYF(0));
+    if(strcmp(space_collation, "latvian")==0) collator = get_charset(130,MYF(0));
+    if(strcmp(space_collation, "persian")==0) collator = get_charset(144,MYF(0));
+    if(strcmp(space_collation, "spanish2")==0) collator = get_charset(142,MYF(0));
+    if(strcmp(space_collation, "romanian")==0) collator = get_charset(131,MYF(0));
+    if(strcmp(space_collation, "estonian")==0) collator = get_charset(134,MYF(0));
+    if(strcmp(space_collation, "icelandic")==0) collator = get_charset(129,MYF(0));
+    if(strcmp(space_collation, "slovenian")==0) collator = get_charset(132,MYF(0));
+    if(strcmp(space_collation, "esperanto")==0) collator = get_charset(145,MYF(0));
+    if(strcmp(space_collation, "hungarian")==0) collator = get_charset(146,MYF(0));
+    if(strcmp(space_collation, "lithuanian")==0) collator = get_charset(140,MYF(0));
+  }
+  
   // buffer is to be free-ed
   param->flags = MYSQL_FTFLAGS_NEED_COPY;
   size_t tlen=0;
@@ -149,7 +178,8 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
   char *tmpbuffer;
   tmpbuffer = my_malloc(talloc, MYF(MY_WME));
   
-  if(param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
+  int qmode = param->mode;
+  if(qmode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
     MYSQL_FTPARSER_BOOLEAN_INFO bool_info_may ={ FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 };
     MYSQL_FTPARSER_BOOLEAN_INFO instinfo;
     int depth=0;
@@ -174,7 +204,10 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
           context |= CTX_CONTROL;
         }
         if(sf == SF_QUOTE_START) context |= CTX_QUOTE;
-        if(sf == SF_QUOTE_END)   context &= ~CTX_QUOTE;
+        if(sf == SF_QUOTE_END){
+          context &= ~CTX_QUOTE;
+          param->mode = MYSQL_FTPARSER_FULL_BOOLEAN_INFO;
+        }
         if(sf == SF_LEFT_PAREN){
           instinfo = baseinfos[depth];
           depth++;
@@ -201,19 +234,44 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
           instinfo.wasign = -1;
         }
       }
+      if(context & CTX_QUOTE){
+        if(my_isspace(cs, *pos)){
+          param->mode = MYSQL_FTPARSER_WITH_STOPWORDS;
+          sf = SF_WHITE;
+        }
+      }
       if(sf == SF_WHITE || sf == SF_QUOTE_END || sf == SF_LEFT_PAREN || sf == SF_RIGHT_PAREN || sf == SF_TRUNC){
         if(sf_prev == SF_CHAR){
           if(sf == SF_TRUNC){
             instinfo.trunc = 1;
           }
-          param->mysql_add_word(param, tmpbuffer, tlen, &instinfo); // emit
+          if(collator){
+            // get binary image for Unicode collation
+            int binlen = collator->coll->strnxfrmlen(collator, cs->cset->numchars(cs, tmpbuffer, tmpbuffer + tlen));
+            uchar *wbuffer = (uchar*)my_malloc(binlen, MYF(MY_WME));
+            binlen = collator->coll->strnxfrm(collator, wbuffer, binlen, (uchar*)tmpbuffer, tlen);
+            int c,mark;
+            uint t_res= collator->sort_order_big[0][0x20 * collator->sort_order[0]];
+            for(mark=0,c=0; c<binlen; c+=2){
+              if((*(wbuffer+c) == (t_res>>8)) && (*(wbuffer+c+1) == (t_res&0xFF))){
+                // it is space or padding.
+              }else{
+                mark = c;
+              }
+            }
+            binlen = mark+2;
+            param->mysql_add_word(param, (char*)wbuffer, sizeof(uchar)*binlen, &instinfo); // emit
+            my_free(wbuffer, MYF(0));
+          }else{
+            param->mysql_add_word(param, tmpbuffer, tlen, &instinfo); // emit
+          }
         }
         instinfo = baseinfos[depth];
       }
       if(sf == SF_CHAR){
         if(tlen+readsize>talloc){
           talloc=tlen+readsize;
-          my_realloc(tmpbuffer, talloc, MYF(MY_WME));
+          tmpbuffer=my_realloc(tmpbuffer, talloc, MYF(MY_WME));
         }
         memcpy(tmpbuffer+tlen, pos, readsize);
         tlen += readsize;
@@ -233,7 +291,16 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       sf_prev = sf;
     }
     if(sf==SF_CHAR){
-      param->mysql_add_word(param, tmpbuffer, tlen, &instinfo); // emit
+      if(collator){
+        // get binary image for Unicode collation
+        int binlen = collator->coll->strnxfrmlen(collator, cs->cset->numchars(cs, tmpbuffer, tmpbuffer + tlen));
+        uchar *wbuffer = (uchar*)my_malloc(binlen, MYF(MY_WME));
+        binlen = collator->coll->strnxfrm(collator, wbuffer, binlen, (uchar*)tmpbuffer, tlen);
+        param->mysql_add_word(param, (char*)wbuffer, sizeof(uchar)*binlen, &instinfo); // emit
+        my_free(wbuffer, MYF(0));
+      }else{
+        param->mysql_add_word(param, tmpbuffer, tlen, &instinfo); // emit
+      }
     }
   }else{
     // Natural mode query / Indexing
@@ -249,6 +316,8 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       my_wc_t dst;
       sf = ctxscan(cs, pos, docend, &dst, &readsize, context);
       if(readsize <= 0) break; //ILSEQ
+      
+      if(space_rawinput==TRUE && sf==SF_ESCAPE) sf = SF_CHAR; // cancel the effect of escaping
       
       if(sf==SF_ESCAPE){
         context |= CTX_ESCAPE;
@@ -269,13 +338,22 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
           tlen=0;
         }
         if(sf_prev==SF_CHAR && sf==SF_WHITE){
-          param->mysql_add_word(param, tmpbuffer, tlen, NULL);
+          if(collator){
+            // get binary image for Unicode collation
+            int binlen = collator->coll->strnxfrmlen(collator, cs->cset->numchars(cs, tmpbuffer, tmpbuffer + tlen));
+            uchar *wbuffer = (uchar*)my_malloc(binlen, MYF(MY_WME));
+            binlen = collator->coll->strnxfrm(collator, wbuffer, binlen, (uchar*)tmpbuffer, tlen);
+            param->mysql_add_word(param, (char*)wbuffer, sizeof(uchar)*binlen, NULL); // emit
+            my_free(wbuffer, MYF(0));
+          }else{
+            param->mysql_add_word(param, tmpbuffer, tlen, NULL);
+          }
           tlen=0;
         }
         if(sf==SF_CHAR){
           if(tlen+readsize>talloc){
             talloc=tlen+readsize;
-            my_realloc(tmpbuffer, talloc, MYF(MY_WME));
+            tmpbuffer=my_realloc(tmpbuffer, talloc, MYF(MY_WME));
           }
           memcpy(tmpbuffer+tlen, pos, readsize);
           tlen+=readsize;
@@ -285,7 +363,16 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       pos += readsize;
     }
     if(sf==SF_CHAR){
-      param->mysql_add_word(param, tmpbuffer, tlen, NULL);
+      if(collator){
+        // get binary image for Unicode collation
+        int binlen = collator->coll->strnxfrmlen(collator, cs->cset->numchars(cs, tmpbuffer, tmpbuffer + tlen));
+        uchar *wbuffer = (uchar*)my_malloc(binlen, MYF(MY_WME));
+        binlen = collator->coll->strnxfrm(collator, wbuffer, binlen, (uchar*)tmpbuffer, tlen);
+        param->mysql_add_word(param, (char*)wbuffer, sizeof(uchar)*binlen, NULL); // emit
+        my_free(wbuffer, MYF(0));
+      }else{
+        param->mysql_add_word(param, tmpbuffer, tlen, NULL);
+      }
     }
   }
   my_free(tmpbuffer,MYF(0));
@@ -317,12 +404,71 @@ int space_unicode_normalize_check(MYSQL_THD thd, struct st_mysql_sys_var *var, v
     return -1;
 }
 
+int space_collation_check(MYSQL_THD thd, struct st_mysql_sys_var *var, void *save, struct st_mysql_value *value){
+    char buf[32];
+    int len=32;
+    const char *str;
+    
+    str = value->val_str(value,buf,&len);
+    if(!str) return -1;
+    *(const char**)save=str;
+    if(len==3){
+        if(memcmp("OFF", str, len)==0) return 0;
+        if(memcmp("bin", str, len)==0 && get_charset(90, MYF(0))) return 0;
+    }
+    if(len==5){
+        if(memcmp("czech", str, len)==0 && get_charset(138, MYF(0))) return 0;
+        if(memcmp("roman", str, len)==0 && get_charset(143, MYF(0))) return 0;
+    }
+    if(len==6){
+        if(memcmp("danish", str, len)==0 && get_charset(139, MYF(0))) return 0;
+        if(memcmp("slovak", str, len)==0 && get_charset(141, MYF(0))) return 0;
+        if(memcmp("polish", str, len)==0 && get_charset(133, MYF(0))) return 0;
+    }
+    if(len==7){
+        if(memcmp("spanish", str, len)==0 && get_charset(135, MYF(0))) return 0;
+        if(memcmp("swedish", str, len)==0 && get_charset(136, MYF(0))) return 0;
+        if(memcmp("turkish", str, len)==0 && get_charset(137, MYF(0))) return 0;
+        if(memcmp("general", str, len)==0 && get_charset(35, MYF(0))) return 0;
+        if(memcmp("unicode", str, len)==0 && get_charset(128, MYF(0))) return 0;
+        if(memcmp("latvian", str, len)==0 && get_charset(130, MYF(0))) return 0;
+        if(memcmp("persian", str, len)==0 && get_charset(144, MYF(0))) return 0;
+    }
+    if(len==8){
+        if(memcmp("spanish2", str, len)==0 && get_charset(142, MYF(0))) return 0;
+        if(memcmp("romanian", str, len)==0 && get_charset(131, MYF(0))) return 0;
+        if(memcmp("estonian", str, len)==0 && get_charset(134, MYF(0))) return 0;
+    }
+    if(len==9){
+        if(memcmp("icelandic", str, len)==0 && get_charset(129, MYF(0))) return 0;
+        if(memcmp("slovenian", str, len)==0 && get_charset(132, MYF(0))) return 0;
+        if(memcmp("esperanto", str, len)==0 && get_charset(145, MYF(0))) return 0;
+        if(memcmp("hungarian", str, len)==0 && get_charset(146, MYF(0))) return 0;
+    }
+    if(len==10){
+        if(memcmp("lithuanian", str, len)==0 && get_charset(140, MYF(0))) return 0;
+    }
+    return -1;
+}
+
+static MYSQL_SYSVAR_BOOL(rawinput, space_rawinput,
+  PLUGIN_VAR_OPCMDARG,
+  "Treat the text as a rawinput",
+  NULL, NULL, FALSE);
+
 static MYSQL_SYSVAR_STR(normalization, space_unicode_normalize,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
   "Set unicode normalization (OFF, C, D, KC, KD, FCD)",
   space_unicode_normalize_check, NULL, "OFF");
 
+static MYSQL_SYSVAR_STR(collation, space_collation,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
+  "Set unicode collation mode (OFF, unicode, general, etc.)",
+  space_collation_check, NULL, "OFF");
+
 static struct st_mysql_sys_var* space_system_variables[]= {
+  MYSQL_SYSVAR(collation),
+  MYSQL_SYSVAR(rawinput),
 #if HAVE_ICU
   MYSQL_SYSVAR(normalization),
 #endif

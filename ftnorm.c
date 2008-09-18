@@ -31,7 +31,7 @@ char* uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, s
     s = (UChar*)my_malloc(sizeof(UChar)*s_alloc, MYF(MY_WME));
     if(!s){
       *status=-1;
-      return NULL;
+      return dst;
     }
     ustatus = 0;
     s = u_strFromUTF8(s, s_alloc, &s_len, src, (int32_t)src_len, &ustatus);
@@ -49,14 +49,14 @@ char* uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, s
     if(*status != 0){
         my_free(s, MYF(0));
         *status = -1;
-        return NULL;
+        return dst;
     }
     // normalize
     d_alloc = s_len + 32;
     d = (UChar*)my_malloc(sizeof(UChar)*d_alloc, MYF(MY_WME));
     if(!d){
       *status = -1;
-      return NULL;
+      return dst;
     }
     d_len = unorm_normalize(s, s_len, umode, 0, d, d_alloc, &ustatus);
     while(ustatus == U_BUFFER_OVERFLOW_ERROR){
@@ -73,7 +73,7 @@ char* uni_normalize(char* src, size_t src_len, char* dst, size_t dst_capacity, s
     if(*status != 0){
         my_free(d, MYF(0));
         *status = -1;
-        return NULL;
+        return dst;
     }
     // encode UChar -> UTF-8
     dst_alloc = (int32_t)dst_capacity;

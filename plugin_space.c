@@ -116,10 +116,11 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     if(strcmp(space_unicode_normalize, "KC")==0) mode = 5;
     if(strcmp(space_unicode_normalize, "KD")==0) mode = 3;
     if(strcmp(space_unicode_normalize, "FCD")==0) mode = 6;
-    if(nm=uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, &status)){
+    nm = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, &status);
+    if(status < 0){
        nm_length=nm_used;
        nm = my_realloc(nm, nm_length, MYF(MY_WME));
-       nm=uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, &status);
+       nm = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, &status);
     }
     if(cv_length){
       cv = my_realloc(cv, nm_used, MYF(MY_WME));

@@ -144,16 +144,17 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
   
   // buffer is to be free-ed
   param->flags = MYSQL_FTFLAGS_NEED_COPY;
+  size_t tlen=0;
+  size_t talloc=512;
+  char *tmpbuffer;
+  tmpbuffer = my_malloc(talloc, MYF(MY_WME));
+  
   if(param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
     MYSQL_FTPARSER_BOOLEAN_INFO bool_info_may ={ FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 };
     MYSQL_FTPARSER_BOOLEAN_INFO instinfo;
     int depth=0;
     MYSQL_FTPARSER_BOOLEAN_INFO baseinfos[16];
     instinfo = baseinfos[0] = bool_info_may;
-    
-    size_t tlen=0;
-    char *tmpbuffer;
-    tmpbuffer = my_malloc(feed_length, MYF(MY_WME)); // TODO: This allocates too much memory. shrink later.
     
     int context=CTX_CONTROL;
     SEQFLOW sf,sf_prev = SF_BROKEN;
@@ -210,6 +211,10 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
         instinfo = baseinfos[depth];
       }
       if(sf == SF_CHAR){
+        if(tlen+readsize>talloc){
+          talloc=tlen+readsize;
+          my_realloc(tmpbuffer, talloc, MYF(MY_WME));
+        }
         memcpy(tmpbuffer+tlen, pos, readsize);
         tlen += readsize;
       }else if(sf != SF_ESCAPE){
@@ -230,35 +235,60 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     if(sf==SF_CHAR){
       param->mysql_add_word(param, tmpbuffer, tlen, &instinfo); // emit
     }
-    
-    my_free(tmpbuffer,MYF(0));
   }else{
     // Natural mode query / Indexing
+    SEQFLOW sf,sf_prev = SF_BROKEN;
+    int context=CTX_CONTROL;
     int isspace_prev=1, isspace_cur=0; // boolean
     int mbunit=1;
     
-    char *pos, *wstart, *end;
-    pos = wstart = feed;
-    end = feed + feed_length;
-    while(pos < end){
-      isspace_cur = my_isspace(cs, *pos);
-      mbunit  = param->cs->cset->mbcharlen(cs, *(uchar *)pos);
-      if(mbunit <= 0) break; // ILSEQ
+    char* pos = feed;
+    char* docend = feed + feed_length;
+    while(pos < docend){
+      int readsize;
+      my_wc_t dst;
+      sf = ctxscan(cs, pos, docend, &dst, &readsize, context);
+      if(readsize <= 0) break; //ILSEQ
       
-      if(isspace_prev && !isspace_cur){
-        wstart = pos;
+      if(sf==SF_ESCAPE){
+        context |= CTX_ESCAPE;
+        context |= CTX_CONTROL;
+      }else{
+        context &= ~CTX_ESCAPE;
+        
+        if(sf == SF_WHITE){
+          context |= CTX_CONTROL;
+        }else{
+          context &= ~CTX_CONTROL;
+          sf = SF_CHAR;
+        }
       }
-      if(!isspace_prev && isspace_cur){
-        param->mysql_add_word(param, wstart, pos+mbunit-wstart, NULL);
-        wstart = pos+mbunit;
+      // escape or space or char
+      if(sf!=SF_ESCAPE){
+        if(sf_prev==SF_WHITE && sf==SF_CHAR){
+          tlen=0;
+        }
+        if(sf_prev==SF_CHAR && sf==SF_WHITE){
+          param->mysql_add_word(param, tmpbuffer, tlen, NULL);
+          tlen=0;
+        }
+        if(sf==SF_CHAR){
+          if(tlen+readsize>talloc){
+            talloc=tlen+readsize;
+            my_realloc(tmpbuffer, talloc, MYF(MY_WME));
+          }
+          memcpy(tmpbuffer+tlen, pos, readsize);
+          tlen+=readsize;
+        }
+        sf_prev = sf;
       }
-      isspace_prev = isspace_cur;
-      pos += mbunit;
+      pos += readsize;
     }
-    if(!isspace_prev && wstart < end){
-      param->mysql_add_word(param, wstart, end-wstart, NULL);
+    if(sf==SF_CHAR){
+      param->mysql_add_word(param, tmpbuffer, tlen, NULL);
     }
   }
+  my_free(tmpbuffer,MYF(0));
   if(cv_length>0) my_free(cv, MYF(0));
   return(0);
 }

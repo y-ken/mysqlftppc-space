@@ -10,3 +10,4 @@ normalization supported by ICU library. To normalize in NFC, execute SQL like:
  SET global space_unicode_normalize = 'C'
 You can set one of NONE, C, D, KC, KD (and FCD).
 
+If you're using MySQL 5.1.28, please patch the source(mysql-5.1.28-rc.patch).

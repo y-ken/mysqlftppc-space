@@ -4,6 +4,10 @@
 
 #include "ftbool.h"
 #if HAVE_ICU
+#include <unicode/uclean.h>
+#include <unicode/uversion.h>
+#include <unicode/uchar.h>
+#include <unicode/unorm.h>
 #include "ftnorm.h"
 #endif
 
@@ -18,24 +22,41 @@
 #endif
 
 static char* space_unicode_normalize;
+static char* space_unicode_version;
+static char icu_unicode_version[32];
 static my_bool space_rawinput = FALSE;
 
-static int space_parser_plugin_init(void *arg __attribute__((unused)))
-{
+static void* icu_malloc(const void* context, size_t size){ return my_malloc(size,MYF(MY_WME)); }
+static void* icu_realloc(const void* context, void* ptr, size_t size){ return my_realloc(ptr,size,MYF(MY_WME)); }
+static void  icu_free(const void* context, void *ptr){ my_free(ptr,MYF(0)); }
+
+static int space_parser_plugin_init(void *arg __attribute__((unused))){
+#if HAVE_ICU
+  char errstr[128];
+  UVersionInfo versionInfo;
+  u_getUnicodeVersion(versionInfo);
+  u_versionToString(versionInfo, icu_unicode_version);
+  
+  UErrorCode ustatus=0;
+  u_setMemoryFunctions(NULL, icu_malloc, icu_realloc, icu_free, &ustatus);
+  if(U_FAILURE(ustatus)){
+    sprintf(errstr, "u_setMemoryFunctions failed. ICU status code %d\n", ustatus);
+    fputs(errstr, stderr);
+    fflush(stderr);
+  }
+#endif
   return(0);
 }
-static int space_parser_plugin_deinit(void *arg __attribute__((unused)))
-{
+
+static int space_parser_plugin_deinit(void *arg __attribute__((unused))){
   return(0);
 }
 
 
-static int space_parser_init(MYSQL_FTPARSER_PARAM *param __attribute__((unused)))
-{
+static int space_parser_init(MYSQL_FTPARSER_PARAM *param __attribute__((unused))){
   return(0);
 }
-static int space_parser_deinit(MYSQL_FTPARSER_PARAM *param __attribute__((unused)))
-{
+static int space_parser_deinit(MYSQL_FTPARSER_PARAM *param __attribute__((unused))){
   return(0);
 }
 
@@ -103,22 +124,33 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
   // normalize
   if(strcmp(space_unicode_normalize, "OFF")!=0){
     char* nm;
+    char* t;
     size_t nm_length=0;
     size_t nm_used=0;
     nm_length = feed_length+32;
     nm = my_malloc(nm_length, MYF(MY_WME));
     int status = 0;
-    int mode = 1;
-    if(strcmp(space_unicode_normalize, "C")==0) mode = 4;
-    if(strcmp(space_unicode_normalize, "D")==0) mode = 2;
-    if(strcmp(space_unicode_normalize, "KC")==0) mode = 5;
-    if(strcmp(space_unicode_normalize, "KD")==0) mode = 3;
-    if(strcmp(space_unicode_normalize, "FCD")==0) mode = 6;
-    nm = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, &status);
-    if(status < 0){
-       nm_length=nm_used;
-       nm = my_realloc(nm, nm_length, MYF(MY_WME));
-       nm = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, &status);
+    int mode = UNORM_NONE;
+    int options = 0;
+    if(strcmp(space_unicode_normalize, "C")==0) mode = UNORM_NFC;
+    if(strcmp(space_unicode_normalize, "D")==0) mode = UNORM_NFD;
+    if(strcmp(space_unicode_normalize, "KC")==0) mode = UNORM_NFKC;
+    if(strcmp(space_unicode_normalize, "KD")==0) mode = UNORM_NFKD;
+    if(strcmp(space_unicode_normalize, "FCD")==0) mode = UNORM_FCD;
+    if(strcmp(space_unicode_version, "3.2")==0) options |= UNORM_UNICODE_3_2;
+    t = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, options, &status);
+    if(status != 0){
+      nm_length=nm_used;
+      nm = my_realloc(nm, nm_length, MYF(MY_WME));
+      t = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, options, &status);
+      if(status != 0){
+        fputs("unicode normalization failed.\n",stderr);
+        fflush(stderr);
+      }else{
+        nm = t;
+      }
+    }else{
+      nm = t;
     }
     if(cv_length){
       cv = my_realloc(cv, nm_used, MYF(MY_WME));
@@ -146,15 +178,14 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
   }
   
   // buffer is to be free-ed
-  param->flags = MYSQL_FTFLAGS_NEED_COPY;
-  size_t tlen=0;
-  size_t talloc=512;
-  char *tmpbuffer;
-  tmpbuffer = my_malloc(talloc, MYF(MY_WME));
+  param->flags |= MYSQL_FTFLAGS_NEED_COPY;
+  size_t talloc = feed_length;
+  char*  tbuffer = my_malloc(talloc, MYF(MY_WME)); // current myisam does not copy buffer.
   
-  int qmode = param->mode;
-  if(qmode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
-    MYSQL_FTPARSER_BOOLEAN_INFO bool_info_may ={ FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 };
+  if(param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
+    char*  word=tbuffer;
+    size_t word_len=0;
+    MYSQL_FTPARSER_BOOLEAN_INFO bool_info_may    ={ FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 };
     MYSQL_FTPARSER_BOOLEAN_INFO instinfo;
     int depth=0;
     MYSQL_FTPARSER_BOOLEAN_INFO baseinfos[16];
@@ -177,25 +208,6 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
         }else{
           context |= CTX_CONTROL;
         }
-        if(sf == SF_QUOTE_START) context |= CTX_QUOTE;
-        if(sf == SF_QUOTE_END){
-          context &= ~CTX_QUOTE;
-          param->mode = MYSQL_FTPARSER_FULL_BOOLEAN_INFO;
-        }
-        if(sf == SF_LEFT_PAREN){
-          instinfo = baseinfos[depth];
-          depth++;
-          if(depth>16) depth=16;
-          baseinfos[depth] = instinfo;
-          instinfo.type = FT_TOKEN_LEFT_PAREN;
-          param->mysql_add_word(param, pos, 0, &instinfo); // push LEFT_PAREN token
-        }
-        if(sf == SF_RIGHT_PAREN){
-          instinfo.type = FT_TOKEN_RIGHT_PAREN;
-          param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
-          depth--;
-          if(depth<0) depth=0;
-        }
         if(sf == SF_PLUS){
           instinfo.yesno = 1;
         }
@@ -207,31 +219,68 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
         if(sf == SF_WASIGN){
           instinfo.wasign = -1;
         }
-      }
-      if(context & CTX_QUOTE){
-        if(my_isspace(cs, *pos)){
-          param->mode = MYSQL_FTPARSER_WITH_STOPWORDS;
-          sf = SF_WHITE;
+        if(sf == SF_LEFT_PAREN){
+          depth++;
+          if(depth>16) depth=16;
+          baseinfos[depth] = instinfo;
+          instinfo.type = FT_TOKEN_LEFT_PAREN;
+          param->mysql_add_word(param, pos, 0, &instinfo); // push LEFT_PAREN token
+          instinfo = baseinfos[depth];
         }
-      }
-      if(sf == SF_WHITE || sf == SF_QUOTE_END || sf == SF_LEFT_PAREN || sf == SF_RIGHT_PAREN || sf == SF_TRUNC){
-        if(sf_prev == SF_CHAR){
-          if(sf == SF_TRUNC){
-            instinfo.trunc = 1;
+        if(sf == SF_RIGHT_PAREN){
+          instinfo.type = FT_TOKEN_LEFT_PAREN;
+          param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
+          depth--;
+          if(depth<0) depth=0;
+          instinfo = baseinfos[depth];
+        }
+        if(sf == SF_QUOTE_START){
+          context |= CTX_QUOTE;
+          depth++;
+          if(depth>16) depth=16;
+          instinfo.quot = (char*)1; // will be in quote
+          baseinfos[depth] = instinfo; // save
+          instinfo.type = FT_TOKEN_LEFT_PAREN;
+          param->mysql_add_word(param, pos, 0, &instinfo); // push LEFT_PAREN token
+          instinfo = baseinfos[depth]; // restore
+        }
+        if(context & CTX_QUOTE){
+          if(my_isspace(cs, *pos) && sf_prev!=SF_ESCAPE){ // perform phrase query.
+            sf = SF_WHITE;
           }
-          param->mysql_add_word(param, tmpbuffer, tlen, &instinfo); // emit
         }
-        instinfo = baseinfos[depth];
-      }
-      if(sf == SF_CHAR){
-        if(tlen+readsize>talloc){
-          talloc=tlen+readsize;
-          tmpbuffer=my_realloc(tmpbuffer, talloc, MYF(MY_WME));
+        if(sf == SF_WHITE || sf == SF_QUOTE_END || sf == SF_LEFT_PAREN || sf == SF_RIGHT_PAREN || sf == SF_TRUNC){
+          if(sf_prev == SF_CHAR){
+            if(sf == SF_TRUNC){
+              instinfo.trunc = 1;
+            }
+            param->mysql_add_word(param, word, word_len, &instinfo); // emit
+            word = word+word_len;
+            word_len=0;
+            instinfo = baseinfos[depth];
+          }
         }
-        memcpy(tmpbuffer+tlen, pos, readsize);
-        tlen += readsize;
-      }else if(sf != SF_ESCAPE){
-        tlen = 0;
+        if(sf == SF_QUOTE_END){
+          context &= ~CTX_QUOTE;
+          instinfo = baseinfos[depth];
+          instinfo.type = FT_TOKEN_RIGHT_PAREN;
+          param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
+          depth--;
+          if(depth<0) depth=0;
+          instinfo = baseinfos[depth];
+        }
+        
+        if(sf == SF_CHAR){
+//           if(tlen+readsize>talloc){
+//             talloc=tlen+readsize;
+//             tbuffer=my_realloc(tbuffer, talloc, MYF(MY_WME));
+//           }
+          memcpy(word+word_len, pos, readsize);
+          word_len += readsize;
+        }else if(sf != SF_ESCAPE){
+          word = word+word_len;
+          word_len=0;
+        }
       }
       
       if(readsize > 0){
@@ -246,14 +295,17 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       sf_prev = sf;
     }
     if(sf==SF_CHAR){
-      param->mysql_add_word(param, tmpbuffer, tlen, &instinfo); // emit
+      param->mysql_add_word(param, word, word_len, &instinfo); // emit
     }
   }else{
     // Natural mode query / Indexing
+    // or MYSQL_FTPARSER_WITH_STOPWORDS
     SEQFLOW sf,sf_prev = SF_BROKEN;
     int context=CTX_CONTROL;
     int isspace_prev=1, isspace_cur=0; // boolean
     int mbunit=1;
+    char*  word=tbuffer;
+    size_t word_len=0;
     
     char* pos = feed;
     char* docend = feed + feed_length;
@@ -280,32 +332,49 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       }
       // escape or space or char
       if(sf!=SF_ESCAPE){
-        if(sf_prev==SF_WHITE && sf==SF_CHAR){
-          tlen=0;
-        }
         if(sf_prev==SF_CHAR && sf==SF_WHITE){
-          param->mysql_add_word(param, tmpbuffer, tlen, NULL);
-          tlen=0;
+          param->mysql_add_word(param, word, word_len, NULL);
+//          tlen=0;
+          word = word+word_len;
+          word_len=0;
         }
         if(sf==SF_CHAR){
-          if(tlen+readsize>talloc){
-            talloc=tlen+readsize;
-            tmpbuffer=my_realloc(tmpbuffer, talloc, MYF(MY_WME));
-          }
-          memcpy(tmpbuffer+tlen, pos, readsize);
-          tlen+=readsize;
+//           if(tlen+readsize>talloc){
+//             talloc=tlen+readsize;
+//             tbuffer=my_realloc(tbuffer, talloc, MYF(MY_WME));
+//           }
+          memcpy(word+word_len, pos, readsize);
+          word_len += readsize;
         }
         sf_prev = sf;
       }
       pos += readsize;
     }
     if(sf==SF_CHAR){
-      param->mysql_add_word(param, tmpbuffer, tlen, NULL);
+      param->mysql_add_word(param, word, word_len, NULL);
     }
   }
-  my_free(tmpbuffer,MYF(0));
+  my_free(tbuffer, MYF(0)); // free-ed in deinit
   if(cv_length>0) my_free(cv, MYF(0));
+  
   return(0);
+}
+
+int space_unicode_version_check(MYSQL_THD thd, struct st_mysql_sys_var *var, void *save, struct st_mysql_value *value){
+    char buf[4];
+    int len=4;
+    const char *str;
+    
+    str = value->val_str(value,buf,&len);
+    if(!str) return -1;
+    *(const char**)save=str;
+    if(len==3){
+      if(memcmp(str, "3.2", len)==0) return 0;
+    }
+    if(len==7){
+      if(memcmp(str, "DEFAULT", len)==0) return 0;
+    }
+    return -1;
 }
 
 int space_unicode_normalize_check(MYSQL_THD thd, struct st_mysql_sys_var *var, void *save, struct st_mysql_value *value){
@@ -342,10 +411,22 @@ static MYSQL_SYSVAR_STR(normalization, space_unicode_normalize,
   "Set unicode normalization (OFF, C, D, KC, KD, FCD)",
   space_unicode_normalize_check, NULL, "OFF");
 
+static MYSQL_SYSVAR_STR(unicode_version, space_unicode_version,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
+  "Set unicode version (3.2, DEFAULT)",
+  space_unicode_version_check, NULL, "DEFAULT");
+
+static struct st_mysql_show_var space_status[]=
+{
+  {"ICU_unicode_version", (char *)icu_unicode_version, SHOW_CHAR},
+  {0,0,0}
+};
+
 static struct st_mysql_sys_var* space_system_variables[]= {
   MYSQL_SYSVAR(rawinput),
 #if HAVE_ICU
   MYSQL_SYSVAR(normalization),
+  MYSQL_SYSVAR(unicode_version),
 #endif
   NULL
 };
@@ -369,7 +450,7 @@ mysql_declare_plugin(ft_space)
   space_parser_plugin_init,  /* init function (when loaded)     */
   space_parser_plugin_deinit,/* deinit function (when unloaded) */
   0x0013,                     /* version                         */
-  NULL,                       /* status variables                */
+  space_status,               /* status variables                */
   space_system_variables,     /* system variables                */
   NULL
 }

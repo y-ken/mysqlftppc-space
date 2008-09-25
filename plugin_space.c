@@ -180,7 +180,11 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
   // buffer is to be free-ed
   param->flags |= MYSQL_FTFLAGS_NEED_COPY;
   size_t talloc = feed_length;
-  char*  tbuffer = my_malloc(talloc, MYF(MY_WME)); // current myisam does not copy buffer.
+  char*  tbuffer = my_malloc(talloc, MYF(MY_WME));
+  // Current myisam does not copy buffer. So, we'll alloc huge memory here.
+  // If param->mode==MYSQL_FTPARSER_WITH_STOPWORDS, don't reuse the buffer
+  // even if param->flags has MYSQL_FTFLAGS_NEED_COPY, as ftb_phrase_add_word
+  // actually does not copy. We can spare memory when it is fixed.
   
   if(param->mode == MYSQL_FTPARSER_FULL_BOOLEAN_INFO){
     char*  word=tbuffer;

@@ -21,8 +21,8 @@
 #define __attribute__(A)
 #endif
 
-static char* space_unicode_normalize;
-static char* space_unicode_version;
+static char* space_unicode_normalize="NONE";
+static char* space_unicode_version="DEFAULT";
 static char icu_unicode_version[32];
 static my_bool space_rawinput = FALSE;
 
@@ -79,9 +79,6 @@ static size_t str_convert(CHARSET_INFO *cs, char *from, int from_length,
     }else if(cnvres == MY_CS_ILSEQ){
       rpos++;
       wc = '?';
-    }else if(cnvres > MY_CS_TOOSMALL){
-      rpos += (-cnvres);
-      wc = '?';
     }else{
       break;
     }
@@ -97,6 +94,8 @@ static size_t str_convert(CHARSET_INFO *cs, char *from, int from_length,
 
 static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
 {
+  DBUG_ENTER("space_parser_parse");
+  
   CHARSET_INFO *uc = NULL;
   CHARSET_INFO *cs = param->cs;
   char* feed = param->doc;
@@ -106,7 +105,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
   char* cv;
   size_t cv_length=0;
   
-  if(strcmp(cs->csname, "utf8")!=0 && strcmp(space_unicode_normalize, "OFF")!=0){
+  if(strcmp(cs->csname, "utf8")!=0 || strcmp(space_unicode_normalize, "OFF")!=0){
     uc = get_charset(33,MYF(0)); // my_charset_utf8_general_ci for utf8 conversion
   }
   
@@ -310,6 +309,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     int isspace_prev=1, isspace_cur=0; // boolean
     int mbunit=1;
     
+    sf = SF_WHITE;
     char* pos = feed;
     char* docend = feed + feed_length;
     while(pos < docend){
@@ -358,7 +358,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
   my_free(tbuffer, MYF(0)); // free-ed in deinit
   if(cv_length>0) my_free(cv, MYF(0));
   
-  return(0);
+  DBUG_RETURN(0);
 }
 
 int space_unicode_version_check(MYSQL_THD thd, struct st_mysql_sys_var *var, void *save, struct st_mysql_value *value){

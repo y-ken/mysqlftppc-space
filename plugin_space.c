@@ -21,7 +21,7 @@
 #define __attribute__(A)
 #endif
 
-static char* space_unicode_normalize="NONE";
+static char* space_unicode_normalize="OFF";
 static char* space_unicode_version="DEFAULT";
 static char icu_unicode_version[32];
 static my_bool space_rawinput = FALSE;
@@ -60,11 +60,9 @@ static int space_parser_deinit(MYSQL_FTPARSER_PARAM *param __attribute__((unused
   return(0);
 }
 
-static size_t str_convert(CHARSET_INFO *cs, char *from, int from_length,
-                          CHARSET_INFO *uc, char *to,   int to_length){
+static size_t str_convert(CHARSET_INFO *cs, char *from, size_t from_length,
+                          CHARSET_INFO *uc, char *to,   size_t to_length){
   char *rpos, *rend, *wpos, *wend;
-  my_charset_conv_mb_wc mb_wc = cs->cset->mb_wc;
-  my_charset_conv_wc_mb wc_mb = uc->cset->wc_mb;
   my_wc_t wc;
   
   rpos = from;
@@ -73,7 +71,7 @@ static size_t str_convert(CHARSET_INFO *cs, char *from, int from_length,
   wend = to + to_length;
   while(rpos < rend){
     int cnvres = 0;
-    cnvres = (*mb_wc)(cs, &wc, (uchar*)rpos, (uchar*)rend);
+    cnvres = cs->cset->mb_wc(cs, &wc, (uchar*)rpos, (uchar*)rend);
     if(cnvres > 0){
       rpos += cnvres;
     }else if(cnvres == MY_CS_ILSEQ){
@@ -82,7 +80,7 @@ static size_t str_convert(CHARSET_INFO *cs, char *from, int from_length,
     }else{
       break;
     }
-    cnvres = (*wc_mb)(uc, wc, (uchar*)wpos, (uchar*)wend);
+    cnvres = uc->cset->wc_mb(uc, wc, (uchar*)wpos, (uchar*)wend);
     if(cnvres > 0){
       wpos += cnvres;
     }else{
@@ -100,23 +98,23 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
   CHARSET_INFO *cs = param->cs;
   char* feed = param->doc;
   size_t feed_length = (size_t)param->length;
+  int feed_req_free = 0;
   
-  uint mblen;
-  char* cv;
-  size_t cv_length=0;
-  
-  if(strcmp(cs->csname, "utf8")!=0 || strcmp(space_unicode_normalize, "OFF")!=0){
+  // we do convert if it was requred to normalize.
+  if(strcmp(cs->csname, "utf8")!=0 && strcmp(space_unicode_normalize, "OFF")!=0){
     uc = get_charset(33,MYF(0)); // my_charset_utf8_general_ci for utf8 conversion
   }
   
   // convert into UTF-8
   if(uc){
+    char* cv;
+    size_t cv_length=0;
     // calculate mblen and malloc.
-    mblen = uc->mbmaxlen * cs->cset->numchars(cs, feed, feed+feed_length);
-    cv = my_malloc(mblen, MYF(MY_WME));
-    cv_length = mblen;
+    cv_length = uc->mbmaxlen * cs->cset->numchars(cs, feed, feed+feed_length);
+    cv = my_malloc(cv_length, MYF(MY_WME));
     feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length);
     feed = cv;
+    feed_req_free = 1;
   }
   
 #if HAVE_ICU
@@ -151,29 +149,23 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     }else{
       nm = t;
     }
-    if(cv_length){
-      cv = my_realloc(cv, nm_used, MYF(MY_WME));
-    }else{
-      cv = my_malloc(nm_used, MYF(MY_WME));
-    }
-    memcpy(cv, nm, nm_used);
-    cv_length = nm_used;
-    my_free(nm,MYF(0));
-    feed = cv;
-    feed_length = cv_length;
+    feed_length = nm_used;
+    if(feed_req_free) my_free(feed,MYF(0));
+    feed = nm;
+    feed_req_free = 1;
   }
 #endif
   
   if(uc){
+    char* cv;
+    size_t cv_length=0;
     // convert from UTF-8
-    mblen = cs->mbmaxlen * uc->cset->numchars(uc, feed, feed+feed_length);
-    if(cv_length){
-      cv = my_realloc(cv, mblen, MYF(MY_WME));
-    }else{
-      cv = my_malloc(mblen, MYF(MY_WME));
-    }
+    cv_length = cs->mbmaxlen * uc->cset->numchars(uc, feed, feed+feed_length);
+    cv = my_malloc(cv_length, MYF(MY_WME));
     feed_length = str_convert(uc, feed, feed_length, cs, cv, cv_length);
+    if(feed_req_free) my_free(feed,MYF(0));
     feed = cv;
+    feed_req_free = 1;
   }
   
   // buffer is to be free-ed
@@ -287,8 +279,6 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
         pos += readsize;
       }else if(readsize == MY_CS_ILSEQ){
         pos++;
-      }else if(readsize > MY_CS_TOOSMALL){
-        pos += (-readsize);
       }else{
         break;
       }
@@ -356,7 +346,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     }
   }
   my_free(tbuffer, MYF(0)); // free-ed in deinit
-  if(cv_length>0) my_free(cv, MYF(0));
+  if(feed_req_free) my_free(feed,MYF(0));
   
   DBUG_RETURN(0);
 }

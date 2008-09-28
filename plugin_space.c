@@ -157,11 +157,9 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
 #endif
   
   if(uc){
-    char* cv;
-    size_t cv_length=0;
     // convert from UTF-8
-    cv_length = cs->mbmaxlen * uc->cset->numchars(uc, feed, feed+feed_length);
-    cv = my_malloc(cv_length, MYF(MY_WME));
+    int cv_length = cs->mbmaxlen * uc->cset->numchars(uc, feed, feed+feed_length);
+    char* cv = my_malloc(cv_length, MYF(MY_WME));
     feed_length = str_convert(uc, feed, feed_length, cs, cv, cv_length);
     if(feed_req_free) my_free(feed,MYF(0));
     feed = cv;

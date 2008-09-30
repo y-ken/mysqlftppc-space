@@ -339,7 +339,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       }
       pos += readsize;
     }
-    if(sf==SF_CHAR){
+    if(sf==SF_CHAR && tlen>0){
       param->mysql_add_word(param, tbuffer, tlen, NULL);
     }
   }

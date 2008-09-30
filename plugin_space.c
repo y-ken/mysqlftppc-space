@@ -246,7 +246,9 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
             if(sf == SF_TRUNC){
               instinfo.trunc = 1;
             }
-            param->mysql_add_word(param, tbuffer, tlen, &instinfo); // emit
+            if(tlen>0 && tlen<256){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
+              param->mysql_add_word(param, tbuffer, tlen, &instinfo); // emit
+            }
             tlen = 0;
             instinfo = baseinfos[depth];
           }
@@ -283,7 +285,9 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       sf_prev = sf;
     }
     if(sf==SF_CHAR){
-      param->mysql_add_word(param, tbuffer, tlen, &instinfo); // emit
+      if(tlen>0 && tlen<256){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
+        param->mysql_add_word(param, tbuffer, tlen, &instinfo); // emit
+      }
     }
     if(instinfo.quot){ // quote must be closed, otherwise, MyISAM will crash.
       instinfo.type = FT_TOKEN_RIGHT_PAREN;
@@ -324,7 +328,9 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       // escape or space or char
       if(sf!=SF_ESCAPE){
         if(sf_prev==SF_CHAR && sf==SF_WHITE){
-          param->mysql_add_word(param, tbuffer, tlen, NULL);
+          if(tlen>0 && tlen<256){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
+            param->mysql_add_word(param, tbuffer, tlen, NULL);
+          }
           tlen=0;
         }
         if(sf==SF_CHAR){
@@ -339,8 +345,10 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       }
       pos += readsize;
     }
-    if(sf==SF_CHAR && tlen>0){
-      param->mysql_add_word(param, tbuffer, tlen, NULL);
+    if(sf==SF_CHAR){
+      if(tlen>0 && tlen<256){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
+        param->mysql_add_word(param, tbuffer, tlen, NULL);
+      }
     }
   }
   my_free(tbuffer, MYF(0)); // free-ed in deinit

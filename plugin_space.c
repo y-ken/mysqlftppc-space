@@ -16,6 +16,8 @@
 #include <m_ctype.h>
 #include <my_sys.h>
 #include <plugin.h>
+/// #include <ft_global.h>
+#define HA_FT_MAXBYTELEN 254
 
 #if !defined(__attribute__) && (defined(__cplusplus) || !defined(__GNUC__)  || __GNUC__ == 2 && __GNUC_MINOR__ < 8)
 #define __attribute__(A)
@@ -246,7 +248,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
             if(sf == SF_TRUNC){
               instinfo.trunc = 1;
             }
-            if(tlen>0 && tlen<256){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
+            if(tlen>0 && tlen< HA_FT_MAXBYTELEN ){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
               param->mysql_add_word(param, tbuffer, tlen, &instinfo); // emit
             }
             tlen = 0;
@@ -285,7 +287,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       sf_prev = sf;
     }
     if(sf==SF_CHAR){
-      if(tlen>0 && tlen<256){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
+      if(tlen>0 && tlen < HA_FT_MAXBYTELEN){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
         param->mysql_add_word(param, tbuffer, tlen, &instinfo); // emit
       }
     }
@@ -328,7 +330,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       // escape or space or char
       if(sf!=SF_ESCAPE){
         if(sf_prev==SF_CHAR && sf==SF_WHITE){
-          if(tlen>0 && tlen<256){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
+          if(tlen>0 && tlen < HA_FT_MAXBYTELEN){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
             param->mysql_add_word(param, tbuffer, tlen, NULL);
           }
           tlen=0;
@@ -346,7 +348,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       pos += readsize;
     }
     if(sf==SF_CHAR){
-      if(tlen>0 && tlen<256){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
+      if(tlen>0 && tlen < HA_FT_MAXBYTELEN){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
         param->mysql_add_word(param, tbuffer, tlen, NULL);
       }
     }

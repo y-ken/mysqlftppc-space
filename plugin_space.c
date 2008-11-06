@@ -23,10 +23,10 @@
 #define __attribute__(A)
 #endif
 
-static char* space_unicode_normalize="OFF";
-static char* space_unicode_version="DEFAULT";
-static char icu_unicode_version[32];
-static my_bool space_rawinput = FALSE;
+static char* space_unicode_normalize;
+static char* space_unicode_version;
+static char space_info[128];
+static my_bool space_rawinput;
 
 static void* icu_malloc(const void* context, size_t size){ return my_malloc(size,MYF(MY_WME)); }
 static void* icu_realloc(const void* context, void* ptr, size_t size){ return my_realloc(ptr,size,MYF(MY_WME)); }
@@ -34,10 +34,18 @@ static void  icu_free(const void* context, void *ptr){ my_free(ptr,MYF(0)); }
 
 static int space_parser_plugin_init(void *arg __attribute__((unused))){
 #if HAVE_ICU
+  char icu_tmp_str[16];
   char errstr[128];
   UVersionInfo versionInfo;
-  u_getUnicodeVersion(versionInfo);
-  u_versionToString(versionInfo, icu_unicode_version);
+  u_getVersion(versionInfo); // get ICU version
+  u_versionToString(versionInfo, icu_tmp_str);
+  strcat(space_info, "with ICU ");
+  strcat(space_info, icu_tmp_str);
+  u_getUnicodeVersion(versionInfo); // get ICU Unicode version
+  u_versionToString(versionInfo, icu_tmp_str);
+  strcat(space_info, "(Unicode ");
+  strcat(space_info, icu_tmp_str);
+  strcat(space_info, ")");
   
   UErrorCode ustatus=0;
   u_setMemoryFunctions(NULL, icu_malloc, icu_realloc, icu_free, &ustatus);
@@ -417,7 +425,7 @@ static MYSQL_SYSVAR_STR(unicode_version, space_unicode_version,
 
 static struct st_mysql_show_var space_status[]=
 {
-  {"ICU_unicode_version", (char *)icu_unicode_version, SHOW_CHAR},
+  {"Space_info", (char *)space_info, SHOW_CHAR},
   {0,0,0}
 };
 
@@ -448,7 +456,7 @@ mysql_declare_plugin(ft_space)
   PLUGIN_LICENSE_BSD,
   space_parser_plugin_init,  /* init function (when loaded)     */
   space_parser_plugin_deinit,/* deinit function (when unloaded) */
-  0x0013,                     /* version                         */
+  0x0014,                     /* version                         */
   space_status,               /* status variables                */
   space_system_variables,     /* system variables                */
   NULL

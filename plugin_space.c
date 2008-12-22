@@ -232,7 +232,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
           instinfo = baseinfos[depth];
         }
         if(sf == SF_RIGHT_PAREN){
-          instinfo.type = FT_TOKEN_LEFT_PAREN;
+          instinfo.type = FT_TOKEN_RIGHT_PAREN;
           param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
           depth--;
           if(depth<0) depth=0;

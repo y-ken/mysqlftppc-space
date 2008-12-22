@@ -26,7 +26,8 @@
 static char* space_unicode_normalize;
 static char* space_unicode_version;
 static char space_info[128];
-static my_bool space_rawinput;
+static my_bool space_rawinput = FALSE;
+static my_bool space_drop_long_token = FALSE;
 
 static void* icu_malloc(const void* context, size_t size){ return my_malloc(size,MYF(MY_WME)); }
 static void* icu_realloc(const void* context, void* ptr, size_t size){ return my_realloc(ptr,size,MYF(MY_WME)); }
@@ -260,6 +261,11 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
             }
             if(tlen>0 && tlen< HA_FT_MAXBYTELEN ){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
               param->mysql_add_word(param, tbuffer, tlen, &instinfo); // emit
+            }else{
+              if(space_drop_long_token==FALSE){
+                param->mysql_add_word(param, tbuffer, HA_FT_MAXBYTELEN, &instinfo); // emit
+              }
+              // we should raise warn here.
             }
             tlen = 0;
             instinfo = baseinfos[depth];
@@ -299,6 +305,11 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     if(sf==SF_CHAR){
       if(tlen>0 && tlen < HA_FT_MAXBYTELEN){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
         param->mysql_add_word(param, tbuffer, tlen, &instinfo); // emit
+      }else{
+        if(space_drop_long_token==FALSE){
+          param->mysql_add_word(param, tbuffer, HA_FT_MAXBYTELEN, &instinfo); // emit
+        }
+        // we should raise warn here.
       }
     }
     if(instinfo.quot){ // quote must be closed, otherwise, MyISAM will crash.
@@ -342,6 +353,11 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
         if(sf_prev==SF_CHAR && sf==SF_WHITE){
           if(tlen>0 && tlen < HA_FT_MAXBYTELEN){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
             param->mysql_add_word(param, tbuffer, tlen, NULL);
+          }else{
+            if(space_drop_long_token==FALSE){
+              param->mysql_add_word(param, tbuffer, HA_FT_MAXBYTELEN, NULL);
+            }
+            // we should raise warn here.
           }
           tlen=0;
         }
@@ -360,6 +376,11 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     if(sf==SF_CHAR){
       if(tlen>0 && tlen < HA_FT_MAXBYTELEN){ // we must not exceed HA_FT_MAXBYTELEN-HA_FT_WLEN
         param->mysql_add_word(param, tbuffer, tlen, NULL);
+      }else{
+        if(space_drop_long_token==FALSE){
+          param->mysql_add_word(param, tbuffer, HA_FT_MAXBYTELEN, NULL);
+        }
+        // we should raise warn here.
       }
     }
   }
@@ -415,6 +436,11 @@ static MYSQL_SYSVAR_BOOL(rawinput, space_rawinput,
   "Treat the text as a rawinput",
   NULL, NULL, FALSE);
 
+static MYSQL_SYSVAR_BOOL(drop_long_token, space_drop_long_token,
+  PLUGIN_VAR_OPCMDARG,
+  "Do not index trimmed token and just drop long token.",
+  NULL, NULL, FALSE);
+
 static MYSQL_SYSVAR_STR(normalization, space_unicode_normalize,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_MEMALLOC,
   "Set unicode normalization (OFF, C, D, KC, KD, FCD)",
@@ -433,6 +459,7 @@ static struct st_mysql_show_var space_status[]=
 
 static struct st_mysql_sys_var* space_system_variables[]= {
   MYSQL_SYSVAR(rawinput),
+  MYSQL_SYSVAR(drop_long_token),
 #if HAVE_ICU
   MYSQL_SYSVAR(normalization),
   MYSQL_SYSVAR(unicode_version),

@@ -266,12 +266,11 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
   
   ftstring_bind(pbuffer, feed, feed_req_free);
   
-  MYSQL_FTPARSER_BOOLEAN_INFO info_may = { FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 }; // root boolean_info
-  MYSQL_FTPARSER_BOOLEAN_INFO instinfo = info_may; // boolean_info of cursor
-  LIST infos_root = { NULL, NULL, NULL };
-  LIST *infos;
-  infos = &infos_root;
-  infos->data = &info_may;
+  MYSQL_FTPARSER_BOOLEAN_INFO instinfo = { FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 };
+  MYSQL_FTPARSER_BOOLEAN_INFO *info_may = (MYSQL_FTPARSER_BOOLEAN_INFO*)my_malloc(sizeof(MYSQL_FTPARSER_BOOLEAN_INFO), MYF(MY_WME));
+  *info_may = instinfo;
+  LIST *infos = NULL;
+  list_push(infos, info_may);
   
   int context=CTX_CONTROL;
   SEQFLOW sf,sf_prev = SF_BROKEN;
@@ -328,7 +327,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
           param->flags = 0;
         }
         ftstring_reset(pbuffer);
-        instinfo = *(MYSQL_FTPARSER_BOOLEAN_INFO *)infos->data;
+        instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO *)infos->data);
       }
     }
     if(sf == SF_PLUS){   instinfo.yesno = 1; }
@@ -362,15 +361,10 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
       instinfo.type = FT_TOKEN_RIGHT_PAREN;
       param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
       
-      MYSQL_FTPARSER_BOOLEAN_INFO *tmp = infos->data;
-      if(tmp){
-        if(tmp != &info_may){
-          my_free(tmp, MYF(0));
-        }else{
-          // bad boolean syntax
-        }
-      }
+      MYSQL_FTPARSER_BOOLEAN_INFO *tmp = (MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data;
+      if(tmp){ my_free(tmp, MYF(0)); }
       list_pop(infos);
+      if(!infos){ break; } // must not reach the base info_may level.
       instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
     }
     if(sf == SF_QUOTE_END){
@@ -382,14 +376,9 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
       param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
       
       MYSQL_FTPARSER_BOOLEAN_INFO *tmp = infos->data;
-      if(tmp){
-        if(tmp != &info_may){
-          my_free(tmp, MYF(0));
-        }else{
-          // bad boolean syntax
-        }
-      }
+      if(tmp){ my_free(tmp, MYF(0)); }
       list_pop(infos);
+      if(!infos){ break; } // must not reach the base info_may level.
       instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
     }
     if(sf == SF_CHAR){
@@ -439,6 +428,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
     instinfo.type = FT_TOKEN_RIGHT_PAREN;
     param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
   }
+  list_free(infos, 1);
   ftstring_destroy(pbuffer);
   DBUG_RETURN(0);
 }

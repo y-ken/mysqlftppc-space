@@ -38,6 +38,60 @@ static void  icu_free(const void* context, void *ptr){ my_free(ptr,MYF(0)); }
 static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, int feed_length, int feed_req_free);
 static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, int feed_length, int feed_req_free);
 
+/** ftstate */
+static LIST* list_top(LIST* root){
+  LIST *cur = root;
+  while(cur && cur->next){
+    cur = cur->next;
+  }
+  return cur;
+}
+
+struct ftppc_mem_bulk {
+  void*  mem_head;
+  void*  mem_cur;
+  size_t mem_size;
+};
+
+struct ftppc_state {
+  /** immutable memory buffer */
+  void*  engine;
+  size_t bulksize;
+  LIST*  mem_root;
+};
+
+static void* ftppc_alloc(struct ftppc_state *state, size_t length){
+  LIST *cur = list_top(state->mem_root);
+  while(1){
+    if(!cur){
+      // hit the root. create a new bulk.
+      size_t sz = state->bulksize<<1;
+      while(sz < length){
+        sz = sz<<1;
+      }
+      state->bulksize = sz;
+      
+      struct ftppc_mem_bulk *tmp = (struct ftppc_mem_bulk*)my_malloc(sizeof(struct ftppc_mem_bulk), MYF(MY_WME));
+      tmp->mem_head = my_malloc(sz, MYF(MY_WME));
+      tmp->mem_cur  = tmp->mem_head;
+      tmp->mem_size = sz;
+      
+      state->mem_root = list_cons(tmp, cur);
+      cur = state->mem_root;
+    }
+    
+    struct ftppc_mem_bulk *bulk = (struct ftppc_mem_bulk*)cur->data;
+    
+    if(bulk->mem_cur + length < bulk->mem_head + bulk->mem_size){
+      void* addr = bulk->mem_cur;
+      bulk->mem_cur += length;
+      return addr;
+    }
+    cur = cur->prev;
+  }
+}
+/** /ftstate */
+
 static int space_parser_plugin_init(void *arg __attribute__((unused))){
   space_info[0]='\0';
 #if HAVE_ICU
@@ -73,9 +127,13 @@ static int space_parser_plugin_deinit(void *arg __attribute__((unused))){
 
 
 static int space_parser_init(MYSQL_FTPARSER_PARAM *param __attribute__((unused))){
+  struct ftppc_state *state = (struct ftppc_state*)my_malloc(sizeof(struct ftppc_state), MYF(MY_WME));
+  state->bulksize = 8;
+  param->ftparser_state = state;
   return(0);
 }
 static int space_parser_deinit(MYSQL_FTPARSER_PARAM *param __attribute__((unused))){
+  list_free(((struct ftppc_state*)param->ftparser_state)->mem_root, 1);
   return(0);
 }
 
@@ -231,6 +289,46 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
         context |= CTX_CONTROL;
       }
     }
+    
+    if(context & CTX_QUOTE){
+      if(my_isspace(param->cs, *pos) && sf_prev!=SF_ESCAPE){ // perform phrase query.
+        sf = SF_WHITE;
+      }
+    }
+    if(sf != SF_CHAR && sf != SF_ESCAPE){
+      if(sf_prev == SF_CHAR){
+        if(sf == SF_TRUNC){
+          instinfo.trunc = 1;
+        }
+        int tlen = ftstring_length(pbuffer);
+        char* thead = ftstring_head(pbuffer);
+        if(tlen > 0){
+          if(ftstring_internal(pbuffer)){
+            thead = (char*)ftppc_alloc((struct ftppc_state*)param->ftparser_state, tlen);
+            memcpy(thead, ftstring_head(pbuffer), tlen);
+          }
+          if(tlen < HA_FT_MAXBYTELEN){
+            param->mysql_add_word(param, thead, tlen, &instinfo);
+//             
+//             char buf[1024];
+//             memcpy(buf, ftstring_head(pbuffer), tlen);
+//             buf[tlen]='\0';
+//             fputs(buf, stderr);
+//             fputs("\n", stderr);
+//             fflush(stderr);
+          }else{
+            if(space_drop_long_token==FALSE){
+              param->mysql_add_word(param, ftstring_head(pbuffer), HA_FT_MAXBYTELEN, &instinfo);
+            }else{
+              // we should raise warn here.
+            }
+          }
+          param->flags = 0;
+        }
+        ftstring_reset(pbuffer);
+        instinfo = *(MYSQL_FTPARSER_BOOLEAN_INFO *)infos->data;
+      }
+    }
     if(sf == SF_PLUS){   instinfo.yesno = 1; }
     if(sf == SF_MINUS){  instinfo.yesno = -1; }
     if(sf == SF_STRONG){ instinfo.weight_adjust++; }
@@ -256,43 +354,6 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
       instinfo.type = FT_TOKEN_LEFT_PAREN;
       param->mysql_add_word(param, pos, 0, &instinfo); // push LEFT_PAREN token
       instinfo = *tmp;
-    }
-    if(context & CTX_QUOTE){
-      if(my_isspace(param->cs, *pos) && sf_prev!=SF_ESCAPE){ // perform phrase query.
-        sf = SF_WHITE;
-      }
-    }
-    if(sf == SF_WHITE || sf == SF_QUOTE_END || sf == SF_LEFT_PAREN || sf == SF_RIGHT_PAREN || sf == SF_TRUNC){
-      if(sf_prev == SF_CHAR){
-        if(sf == SF_TRUNC){
-          instinfo.trunc = 1;
-        }
-        int tlen = ftstring_length(pbuffer);
-        if(tlen > 0){
-          if(ftstring_internal(pbuffer)){
-            param->flags |= MYSQL_FTFLAGS_NEED_COPY;
-          }
-          if(tlen < HA_FT_MAXBYTELEN){
-            param->mysql_add_word(param, ftstring_head(pbuffer), tlen, &instinfo);
-//             
-//             char buf[1024];
-//             memcpy(buf, ftstring_head(pbuffer), tlen);
-//             buf[tlen]='\0';
-//             fputs(buf, stderr);
-//             fputs("\n", stderr);
-//             fflush(stderr);
-          }else{
-            if(space_drop_long_token==FALSE){
-              param->mysql_add_word(param, ftstring_head(pbuffer), HA_FT_MAXBYTELEN, &instinfo);
-            }else{
-              // we should raise warn here.
-            }
-          }
-          param->flags = 0;
-        }
-        ftstring_reset(pbuffer);
-        instinfo = *(MYSQL_FTPARSER_BOOLEAN_INFO *)infos->data;
-      }
     }
     if(sf == SF_RIGHT_PAREN){
       instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
@@ -347,12 +408,14 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
   }
   if(sf==SF_CHAR){
     int tlen = ftstring_length(pbuffer);
+    char* thead = ftstring_head(pbuffer);
     if(tlen > 0){
       if(ftstring_internal(pbuffer)){
-        param->flags |= MYSQL_FTFLAGS_NEED_COPY;
+        thead = (char*)ftppc_alloc((struct ftppc_state*)param->ftparser_state, tlen);
+        memcpy(thead, ftstring_head(pbuffer), tlen);
       }
       if(tlen < HA_FT_MAXBYTELEN){
-        param->mysql_add_word(param, ftstring_head(pbuffer), tlen, &instinfo);
+        param->mysql_add_word(param, thead, tlen, &instinfo);
 //         
 //         char buf[1024];
 //         memcpy(buf, ftstring_head(pbuffer), tlen);
@@ -419,12 +482,14 @@ static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, i
     
     if(sf_prev==SF_CHAR && sf==SF_WHITE){
       int tlen = ftstring_length(pbuffer);
+      char* thead = ftstring_head(pbuffer);
       if(tlen > 0){
         if(ftstring_internal(pbuffer)){
-          param->flags |= MYSQL_FTFLAGS_NEED_COPY;
+          thead = (char*)ftppc_alloc((struct ftppc_state*)param->ftparser_state, tlen);
+          memcpy(thead, ftstring_head(pbuffer), tlen);
         }
         if(tlen < HA_FT_MAXBYTELEN){
-          param->mysql_add_word(param, ftstring_head(pbuffer), tlen, NULL);
+          param->mysql_add_word(param, thead, tlen, NULL);
 //           
 //           char buf[1024];
 //           memcpy(buf, ftstring_head(pbuffer), tlen);
@@ -454,12 +519,14 @@ static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, i
   }
   if(sf==SF_CHAR){
     int tlen = ftstring_length(pbuffer);
+    char* thead = ftstring_head(pbuffer);
     if(tlen > 0){
       if(ftstring_internal(pbuffer)){
-        param->flags |= MYSQL_FTFLAGS_NEED_COPY;
+        thead = (char*)ftppc_alloc((struct ftppc_state*)param->ftparser_state, tlen);
+        memcpy(thead, ftstring_head(pbuffer), tlen);
       }
       if(tlen < HA_FT_MAXBYTELEN){
-        param->mysql_add_word(param, ftstring_head(pbuffer), tlen, NULL);
+        param->mysql_add_word(param, thead, tlen, NULL);
 //         
 //         char buf[1024];
 //         memcpy(buf, ftstring_head(pbuffer), tlen);

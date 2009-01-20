@@ -128,7 +128,9 @@ static int space_parser_plugin_deinit(void *arg __attribute__((unused))){
 
 static int space_parser_init(MYSQL_FTPARSER_PARAM *param __attribute__((unused))){
   struct ftppc_state *state = (struct ftppc_state*)my_malloc(sizeof(struct ftppc_state), MYF(MY_WME));
-  state->bulksize = 8;
+  state->engine=NULL;
+  state->bulksize=8;
+  state->mem_root=NULL;
   param->ftparser_state = state;
   return(0);
 }

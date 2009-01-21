@@ -127,10 +127,9 @@ static int space_parser_plugin_deinit(void *arg __attribute__((unused))){
 
 
 static int space_parser_init(MYSQL_FTPARSER_PARAM *param __attribute__((unused))){
+  struct ftppc_state tmp ={ NULL, 8, NULL };
   struct ftppc_state *state = (struct ftppc_state*)my_malloc(sizeof(struct ftppc_state), MYF(MY_WME));
-  state->engine=NULL;
-  state->bulksize=8;
-  state->mem_root=NULL;
+  *state = tmp;
   param->ftparser_state = state;
   return(0);
 }
@@ -304,7 +303,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
         int tlen = ftstring_length(pbuffer);
         char* thead = ftstring_head(pbuffer);
         if(tlen > 0){
-          if(ftstring_internal(pbuffer)){
+          if(ftstring_internal(pbuffer) || feed_req_free){
             thead = (char*)ftppc_alloc((struct ftppc_state*)param->ftparser_state, tlen);
             memcpy(thead, ftstring_head(pbuffer), tlen);
           }
@@ -401,7 +400,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
     int tlen = ftstring_length(pbuffer);
     char* thead = ftstring_head(pbuffer);
     if(tlen > 0){
-      if(ftstring_internal(pbuffer)){
+      if(ftstring_internal(pbuffer) || feed_req_free){
         thead = (char*)ftppc_alloc((struct ftppc_state*)param->ftparser_state, tlen);
         memcpy(thead, ftstring_head(pbuffer), tlen);
       }
@@ -476,7 +475,7 @@ static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, i
       int tlen = ftstring_length(pbuffer);
       char* thead = ftstring_head(pbuffer);
       if(tlen > 0){
-        if(ftstring_internal(pbuffer)){
+        if(ftstring_internal(pbuffer) || feed_req_free){
           thead = (char*)ftppc_alloc((struct ftppc_state*)param->ftparser_state, tlen);
           memcpy(thead, ftstring_head(pbuffer), tlen);
         }
@@ -513,7 +512,7 @@ static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, i
     int tlen = ftstring_length(pbuffer);
     char* thead = ftstring_head(pbuffer);
     if(tlen > 0){
-      if(ftstring_internal(pbuffer)){
+      if(ftstring_internal(pbuffer) || feed_req_free){
         thead = (char*)ftppc_alloc((struct ftppc_state*)param->ftparser_state, tlen);
         memcpy(thead, ftstring_head(pbuffer), tlen);
       }

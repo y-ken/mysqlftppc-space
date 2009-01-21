@@ -55,9 +55,10 @@ struct ftppc_mem_bulk {
 
 struct ftppc_state {
   /** immutable memory buffer */
-  void*  engine;
   size_t bulksize;
   LIST*  mem_root;
+  void*  engine;
+  CHARSET_INFO* engine_charset;
 };
 
 static void* ftppc_alloc(struct ftppc_state *state, size_t length){
@@ -127,7 +128,7 @@ static int space_parser_plugin_deinit(void *arg __attribute__((unused))){
 
 
 static int space_parser_init(MYSQL_FTPARSER_PARAM *param __attribute__((unused))){
-  struct ftppc_state tmp ={ NULL, 8, NULL };
+  struct ftppc_state tmp ={ 8, NULL, NULL, NULL };
   struct ftppc_state *state = (struct ftppc_state*)my_malloc(sizeof(struct ftppc_state), MYF(MY_WME));
   *state = tmp;
   param->ftparser_state = state;
@@ -215,23 +216,20 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     if(strcmp(space_unicode_normalize, "KD")==0) mode = UNORM_NFKD;
     if(strcmp(space_unicode_normalize, "FCD")==0) mode = UNORM_FCD;
     if(space_unicode_version && strcmp(space_unicode_version, "3.2")==0) options |= UNORM_UNICODE_3_2;
-    t = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, options, &status);
-    if(status != 0){
+    nm_used = uni_normalize(feed, feed_length, nm, nm_length, mode, options);
+    if(nm_used == 0){
       nm_length=nm_used;
-      nm = my_realloc(nm, nm_length, MYF(MY_WME));
-      t = uni_normalize(feed, feed_length, nm, nm_length, &nm_used, mode, options, &status);
-      if(status != 0){
+      char* tmp = my_realloc(nm, nm_length, MYF(MY_WME));
+      if(tmp){ nm = tmp; }
+      nm_used = uni_normalize(feed, feed_length, nm, nm_length, mode, options);
+      if(nm_used == 0){
         fputs("unicode normalization failed.\n",stderr);
         fflush(stderr);
-      }else{
-        nm = t;
       }
-    }else{
-      nm = t;
     }
-    feed_length = nm_used;
-    if(feed_req_free) my_free(feed,MYF(0));
+    if(feed_req_free){ my_free(feed, MYF(0)); }
     feed = nm;
+    feed_length = nm_used;
     feed_req_free = 1;
   }
   
@@ -323,7 +321,6 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
               // we should raise warn here.
             }
           }
-          param->flags = 0;
         }
         ftstring_reset(pbuffer);
         instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO *)infos->data);
@@ -420,7 +417,6 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
           // we should raise warn here.
         }
       }
-      param->flags = 0;
     }
   }
   if(instinfo.quot){ // quote must be closed, otherwise, MyISAM will crash.
@@ -495,7 +491,6 @@ static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, i
             // we should raise warn here.
           }
         }
-        param->flags = 0;
       }
       ftstring_reset(pbuffer);
     }
@@ -532,7 +527,6 @@ static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, i
           // we should raise warn here.
         }
       }
-      param->flags = 0;
     }
   }
   ftstring_destroy(pbuffer);

@@ -2,6 +2,13 @@
 #include <my_sys.h>
 #include <ftstring.h>
 
+/**
+ * FTSTRING has 3 modes:
+ *  A. represent a subsequence of a given string and keep the string as-is.
+ *  B. represent a subsequence of a given string and will rewrite the string if necessary.
+ *  C. represent a string using internal buffer.
+ */
+
 static void ftstring_expand(FTSTRING *str, int capacity){
   if(str->buffer_length >= capacity){ return; }
   int len=1;
@@ -12,7 +19,8 @@ static void ftstring_expand(FTSTRING *str, int capacity){
   if(str->buffer == NULL){
     str->buffer = my_malloc(len, MYF(MY_WME));
   }else{
-    str->buffer = my_realloc(str->buffer, len, MYF(MY_WME));
+    char* tmp = my_realloc(str->buffer, len, MYF(MY_WME));
+    if(tmp){ str->buffer = tmp; }
   }
   str->buffer_length = len;
 }

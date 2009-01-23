@@ -21,6 +21,7 @@
 /// #include <ft_global.h>
 #define HA_FT_MAXBYTELEN 254
 #define FTPPC_MEMORY_ERROR -1
+#define FTPPC_NORMALIZATION_ERROR -2
 
 #if !defined(__attribute__) && (defined(__cplusplus) || !defined(__GNUC__)  || __GNUC__ == 2 && __GNUC_MINOR__ < 8)
 #define __attribute__(A)
@@ -196,7 +197,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       cv = my_malloc(cv_length, MYF(MY_WME));
       if(!cv){
         if(feed_req_free){ my_free(feed,MYF(0)); }
-        DBUG_RETURN(-1);
+        DBUG_RETURN(FTPPC_MEMORY_ERROR);
       }
       feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length);
       feed = cv;
@@ -209,7 +210,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     char* nm = my_malloc(nm_length, MYF(MY_WME));
     if(!nm){
       if(feed_req_free){ my_free(feed,MYF(0)); }
-      DBUG_RETURN(-1);
+      DBUG_RETURN(FTPPC_MEMORY_ERROR);
     }
     int mode = UNORM_NONE;
     int options = 0;
@@ -226,7 +227,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
         fflush(stderr);
         
         if(feed_req_free){ my_free(feed,MYF(0)); }
-        DBUG_RETURN(-1);
+        DBUG_RETURN(FTPPC_NORMALIZATION_ERROR);
       }else if(nm_used > nm_length){
         nm_length = nm_used + 8;
         char *tmp = my_realloc(nm, nm_length, MYF(MY_WME));
@@ -235,7 +236,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
         }else{
           if(feed_req_free){ my_free(feed,MYF(0)); }
           my_free(nm, MYF(0));
-          DBUG_RETURN(-1);
+          DBUG_RETURN(FTPPC_MEMORY_ERROR);
         }
         nm_used = uni_normalize(feed, feed_length, nm, nm_length, mode, options);
         if(nm_used == 0){
@@ -244,7 +245,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
           
           if(feed_req_free){ my_free(feed,MYF(0)); }
           my_free(nm, MYF(0));
-          DBUG_RETURN(-1);
+          DBUG_RETURN(FTPPC_MEMORY_ERROR);
         }
       }
       if(feed_req_free){ my_free(feed, MYF(0)); }
@@ -263,11 +264,8 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     code = space_parser_parse_natural(param, feed, feed_length, cs, feed_req_free);
   }
   if(feed_req_free) my_free(feed,MYF(0));
-  if(code == FTPPC_MEMORY_ERROR){
-    return -1;
-  }
   
-  DBUG_RETURN(0);
+  DBUG_RETURN(code);
 }
 
 static char* add_token(MYSQL_FTPARSER_PARAM *param, char* feed, size_t feed_length, CHARSET_INFO *cs, MYSQL_FTPARSER_BOOLEAN_INFO *instinfo, int feed_realloc,

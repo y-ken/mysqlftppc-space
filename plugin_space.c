@@ -202,6 +202,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length);
       feed = cv;
       feed_req_free = 1;
+      cs = uc;
     }
     
     size_t nm_used=0;
@@ -212,7 +213,6 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       return -1;
 //      DBUG_RETURN(-1);
     }
-    int status = 0;
     int mode = UNORM_NONE;
     int options = 0;
     if(strcmp(space_unicode_normalize, "C")==0) mode = UNORM_NFC;

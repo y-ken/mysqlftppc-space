@@ -4,6 +4,8 @@
 #include <unicode/unorm.h>
 #include <unicode/ustring.h>
 
+#include "ftnorm.h"
+
 /**
  * @param mode same with ICU mode flag UNormalizationMode.
  */

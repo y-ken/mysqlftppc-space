@@ -18,10 +18,11 @@
 #include <my_sys.h>
 #include <my_list.h>
 #include <plugin.h>
-/// #include <ft_global.h>
+
 #define HA_FT_MAXBYTELEN 254
 #define FTPPC_MEMORY_ERROR -1
 #define FTPPC_NORMALIZATION_ERROR -2
+#define FTPPC_SYNTAX_ERROR -3
 
 #if !defined(__attribute__) && (defined(__cplusplus) || !defined(__GNUC__)  || __GNUC__ == 2 && __GNUC_MINOR__ < 8)
 #define __attribute__(A)
@@ -245,7 +246,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
           
           if(feed_req_free){ my_free(feed,MYF(0)); }
           my_free(nm, MYF(0));
-          DBUG_RETURN(FTPPC_MEMORY_ERROR);
+          DBUG_RETURN(FTPPC_NORMALIZATION_ERROR);
         }
       }
       if(feed_req_free){ my_free(feed, MYF(0)); }
@@ -432,7 +433,9 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
       MYSQL_FTPARSER_BOOLEAN_INFO *tmp = (MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data;
       if(tmp){ my_free(tmp, MYF(0)); }
       list_pop(infos);
-      if(!infos){ break; } // must not reach the base info_may level.
+      if(!infos){
+        DBUG_RETURN(FTPPC_SYNTAX_ERROR);
+      } // must not reach the base info_may level.
       instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
     }
     if(sf == SF_QUOTE_END){
@@ -446,7 +449,9 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
       MYSQL_FTPARSER_BOOLEAN_INFO *tmp = infos->data;
       if(tmp){ my_free(tmp, MYF(0)); }
       list_pop(infos);
-      if(!infos){ break; } // must not reach the base info_may level.
+      if(!infos){
+        DBUG_RETURN(FTPPC_SYNTAX_ERROR);
+      } // must not reach the base info_may level.
       instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
     }
     if(sf == SF_CHAR){

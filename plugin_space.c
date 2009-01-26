@@ -136,7 +136,7 @@ static int space_parser_init(MYSQL_FTPARSER_PARAM *param __attribute__((unused))
   struct ftppc_state tmp ={ 8, NULL, NULL, NULL };
   struct ftppc_state *state = (struct ftppc_state*)my_malloc(sizeof(struct ftppc_state), MYF(MY_WME));
   if(!state){
-    return(-1);
+    return(FTPPC_MEMORY_ERROR);
   }
   *state = tmp;
   param->ftparser_state = state;
@@ -148,10 +148,13 @@ static int space_parser_deinit(MYSQL_FTPARSER_PARAM *param __attribute__((unused
 }
 
 static size_t str_convert(CHARSET_INFO *cs, char *from, size_t from_length,
-                          CHARSET_INFO *uc, char *to,   size_t to_length){
+                          CHARSET_INFO *uc, char *to,   size_t to_length,
+                          size_t *numchars){
   char *rpos, *rend, *wpos, *wend;
   my_wc_t wc;
+  char* tmp;
   
+  if(numchars){ *numchars = 0; }
   rpos = from;
   rend = from + from_length;
   wpos = to;
@@ -167,14 +170,21 @@ static size_t str_convert(CHARSET_INFO *cs, char *from, size_t from_length,
     }else{
       break;
     }
-    cnvres = uc->cset->wc_mb(uc, wc, (uchar*)wpos, (uchar*)wend);
+    if(!to){
+      if(!tmp){ tmp=my_malloc(uc->mbmaxlen, MYF(MY_WME)); }
+      cnvres = uc->cset->wc_mb(uc, wc, (uchar*)tmp, (uchar*)(tmp+uc->mbmaxlen));
+    }else{
+      cnvres = uc->cset->wc_mb(uc, wc, (uchar*)wpos, (uchar*)wend);
+    }
     if(cnvres > 0){
-      wpos += cnvres;
+      wpos += (size_t)cnvres;
     }else{
       break;
     }
+    if(numchars){ *numchars++; }
   }
-  return (size_t)(wpos - to);
+  if(tmp){ my_free(tmp, MYF(0)); }
+  return (size_t)(wpos-to);
 }
 
 static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
@@ -194,13 +204,14 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       char* cv;
       size_t cv_length=0;
       // calculate mblen and malloc.
-      cv_length = uc->mbmaxlen * cs->cset->numchars(cs, feed, feed+feed_length);
+//      cv_length = uc->mbmaxlen * cs->cset->numchars(cs, feed, feed+feed_length);
+      cv_length = str_convert(cs, feed, feed_length, uc, NULL, 0, NULL);
       cv = my_malloc(cv_length, MYF(MY_WME));
       if(!cv){
         if(feed_req_free){ my_free(feed,MYF(0)); }
         DBUG_RETURN(FTPPC_MEMORY_ERROR);
       }
-      feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length);
+      feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length, NULL);
       feed = cv;
       feed_req_free = 1;
       cs = uc;
@@ -300,7 +311,7 @@ static char* add_token(MYSQL_FTPARSER_PARAM *param, char* feed, size_t feed_leng
       }
     }
     *trans_length_pt = trans_length;
-    tlen = str_convert(cs, thead, tlen, param->cs, trans, trans_length);
+    tlen = str_convert(cs, thead, tlen, param->cs, trans, trans_length, NULL);
     thead = trans;
   }
   if(feed_realloc || save_transcode){
@@ -358,10 +369,11 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
   int context=CTX_CONTROL;
   SEQFLOW sf,sf_prev = SF_BROKEN;
   char *pos=feed;
-  while(pos < feed+feed_length){
+  char *docend = feed+feed_length;
+  while(pos < docend){
     int readsize;
     my_wc_t dst;
-    sf = ctxscan(param->cs, pos, feed+feed_length, &dst, &readsize, context);
+    sf = ctxscan(param->cs, pos, docend, &dst, &readsize, context);
     if(sf==SF_ESCAPE){
       context |= CTX_ESCAPE;
       context |= CTX_CONTROL;

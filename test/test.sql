@@ -1,0 +1,17 @@
+﻿SET GLOBAL space_normalization=OFF;
+SET GLOBAL space_unicode_version="DEFAULT";
+
+DROP TABLE IF EXISTS sp ;
+CREATE TABLE sp (a TEXT, FULLTEXT(a) WITH PARSER space) CHARSET latin1;
+INSERT INTO sp VALUES ("abc de");
+INSERT INTO sp VALUES ("xyz\\ pq");
+INSERT INTO sp VALUES ("dummy");
+INSERT INTO sp VALUES ("dummy");
+SELECT COUNT(*) FROM sp WHERE MATCH(a) AGAINST('abc de');
+SELECT COUNT(*) FROM sp WHERE MATCH(a) AGAINST('abc' IN BOOLEAN MODE);
+SELECT COUNT(*) FROM sp WHERE MATCH(a) AGAINST('+xyz\\ pq' IN BOOLEAN MODE);
+SELECT COUNT(*) FROM sp WHERE MATCH(a) AGAINST('+\"abc de\"' IN BOOLEAN MODE);
+DROP TABLE IF EXISTS sp ;
+
+SET GLOBAL space_normalization=OFF;
+SET GLOBAL space_unicode_version="DEFAULT";

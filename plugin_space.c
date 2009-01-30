@@ -657,7 +657,7 @@ mysql_declare_plugin(ft_space)
   PLUGIN_LICENSE_BSD,
   space_parser_plugin_init,  /* init function (when loaded)     */
   space_parser_plugin_deinit,/* deinit function (when unloaded) */
-  0x0016,                     /* version                         */
+  0x0106,                     /* version                         */
   space_status,               /* status variables                */
   space_system_variables,     /* system variables                */
   NULL

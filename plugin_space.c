@@ -198,7 +198,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
   // normalize
   if(space_unicode_normalize && strcmp(space_unicode_normalize, "OFF")!=0){
     if(strcmp(cs->csname, "utf8")!=0){
-      CHARSET_INFO *uc = get_charset(33); // my_charset_utf8_general_ci for utf8 conversion
+      CHARSET_INFO *uc = get_charset(33, MYF(0)); // my_charset_utf8_general_ci for utf8 conversion
       char* cv;
       size_t cv_length=0;
       // calculate mblen and malloc.
@@ -585,7 +585,7 @@ int space_unicode_normalize_check(MYSQL_THD thd, struct st_mysql_sys_var *var, v
     str = value->val_str(value,buf,&len);
     if(!str) return -1;
     *(const char**)save=str;
-    if(!get_charset(33)) return -1; // If you don't have utf8 codec in mysql, it fails
+    if(!get_charset(33, MYF(0))) return -1; // If you don't have utf8 codec in mysql, it fails
     if(len==1){
         if(str[0]=='C'){ return 0;}
         if(str[0]=='D'){ return 0;}

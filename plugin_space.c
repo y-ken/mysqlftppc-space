@@ -36,7 +36,7 @@ static my_bool space_drop_long_token = FALSE;
 
 static void* icu_malloc(const void* context, size_t size){ return my_malloc(size,MYF(MY_WME)); }
 static void* icu_realloc(const void* context, void* ptr, size_t size){ return my_realloc(ptr,size,MYF(MY_WME)); }
-static void  icu_free(const void* context, void *ptr){ my_free(ptr,MYF(0)); }
+static void  icu_free(const void* context, void *ptr){ my_free(ptr); }
 
 static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, int feed_length, CHARSET_INFO *cs, int feed_req_free);
 static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, int feed_length, CHARSET_INFO *cs, int feed_req_free);
@@ -183,7 +183,7 @@ static size_t str_convert(CHARSET_INFO *cs, char *from, size_t from_length,
     }
     if(numchars){ *numchars++; }
   }
-  if(tmp){ my_free(tmp, MYF(0)); }
+  if(tmp){ my_free(tmp); }
   return (size_t)(wpos-to);
 }
 
@@ -200,7 +200,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
   // normalize
   if(space_unicode_normalize && strcmp(space_unicode_normalize, "OFF")!=0){
     if(strcmp(cs->csname, "utf8")!=0){
-      CHARSET_INFO *uc = get_charset(33,MYF(0)); // my_charset_utf8_general_ci for utf8 conversion
+      CHARSET_INFO *uc = get_charset(33); // my_charset_utf8_general_ci for utf8 conversion
       char* cv;
       size_t cv_length=0;
       // calculate mblen and malloc.
@@ -208,7 +208,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       cv_length = str_convert(cs, feed, feed_length, uc, NULL, 0, NULL);
       cv = my_malloc(cv_length, MYF(MY_WME));
       if(!cv){
-        if(feed_req_free){ my_free(feed,MYF(0)); }
+        if(feed_req_free){ my_free(feed); }
         DBUG_RETURN(FTPPC_MEMORY_ERROR);
       }
       feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length, NULL);
@@ -221,7 +221,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     size_t nm_length = feed_length+32;
     char* nm = my_malloc(nm_length, MYF(MY_WME));
     if(!nm){
-      if(feed_req_free){ my_free(feed,MYF(0)); }
+      if(feed_req_free){ my_free(feed); }
       DBUG_RETURN(FTPPC_MEMORY_ERROR);
     }
     int mode = UNORM_NONE;
@@ -238,7 +238,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
         fputs("unicode normalization failed.\n",stderr);
         fflush(stderr);
         
-        if(feed_req_free){ my_free(feed,MYF(0)); }
+        if(feed_req_free){ my_free(feed); }
         DBUG_RETURN(FTPPC_NORMALIZATION_ERROR);
       }else if(nm_used > nm_length){
         nm_length = nm_used + 8;
@@ -246,8 +246,8 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
         if(tmp){
           nm = tmp;
         }else{
-          if(feed_req_free){ my_free(feed,MYF(0)); }
-          my_free(nm, MYF(0));
+          if(feed_req_free){ my_free(feed); }
+          my_free(nm);
           DBUG_RETURN(FTPPC_MEMORY_ERROR);
         }
         nm_used = uni_normalize(feed, feed_length, nm, nm_length, mode, options);
@@ -255,12 +255,12 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
           fputs("unicode normalization failed.\n",stderr);
           fflush(stderr);
           
-          if(feed_req_free){ my_free(feed,MYF(0)); }
-          my_free(nm, MYF(0));
+          if(feed_req_free){ my_free(feed); }
+          my_free(nm);
           DBUG_RETURN(FTPPC_NORMALIZATION_ERROR);
         }
       }
-      if(feed_req_free){ my_free(feed, MYF(0)); }
+      if(feed_req_free){ my_free(feed); }
       feed = nm;
       feed_length = nm_used;
       feed_req_free = 1;
@@ -275,7 +275,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     // space plugin does not have stop-words.
     code = space_parser_parse_natural(param, feed, feed_length, cs, feed_req_free);
   }
-  if(feed_req_free) my_free(feed,MYF(0));
+  if(feed_req_free) my_free(feed);
   
   DBUG_RETURN(code);
 }
@@ -443,7 +443,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
       param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
       
       MYSQL_FTPARSER_BOOLEAN_INFO *tmp = (MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data;
-      if(tmp){ my_free(tmp, MYF(0)); }
+      if(tmp){ my_free(tmp); }
       list_pop(infos);
       if(!infos){
         DBUG_RETURN(FTPPC_SYNTAX_ERROR);
@@ -459,7 +459,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
       param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
       
       MYSQL_FTPARSER_BOOLEAN_INFO *tmp = infos->data;
-      if(tmp){ my_free(tmp, MYF(0)); }
+      if(tmp){ my_free(tmp); }
       list_pop(infos);
       if(!infos){
         DBUG_RETURN(FTPPC_SYNTAX_ERROR);
@@ -489,7 +489,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
     instinfo.type = FT_TOKEN_RIGHT_PAREN;
     param->mysql_add_word(param, pos, 0, &instinfo); // push RIGHT_PAREN token
   }
-  if(trans){ my_free(trans, MYF(0)); }
+  if(trans){ my_free(trans); }
   list_free(infos, 1);
   ftstring_destroy(pbuffer);
   DBUG_RETURN(0);
@@ -557,7 +557,7 @@ static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, i
   if(sf==SF_CHAR){
     trans = add_token(param, ftstring_head(pbuffer), ftstring_length(pbuffer), cs, NULL, feed_req_free|ftstring_internal(pbuffer), save_transcode, trans, &trans_length);
   }
-  if(trans){ my_free(trans, MYF(0)); }
+  if(trans){ my_free(trans); }
   ftstring_destroy(pbuffer);
   DBUG_RETURN(0);
 }
@@ -587,7 +587,7 @@ int space_unicode_normalize_check(MYSQL_THD thd, struct st_mysql_sys_var *var, v
     str = value->val_str(value,buf,&len);
     if(!str) return -1;
     *(const char**)save=str;
-    if(!get_charset(33,MYF(0))) return -1; // If you don't have utf8 codec in mysql, it fails
+    if(!get_charset(33)) return -1; // If you don't have utf8 codec in mysql, it fails
     if(len==1){
         if(str[0]=='C'){ return 0;}
         if(str[0]=='D'){ return 0;}

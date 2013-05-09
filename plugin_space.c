@@ -189,8 +189,6 @@ static size_t str_convert(CHARSET_INFO *cs, char *from, size_t from_length,
 
 static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
 {
-  DBUG_ENTER("space_parser_parse");
-  
   char* feed = param->doc;
   size_t feed_length = (size_t)param->length;
   int feed_req_free = 0;
@@ -209,7 +207,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
       cv = my_malloc(cv_length, MYF(MY_WME));
       if(!cv){
         if(feed_req_free){ my_free(feed); }
-        DBUG_RETURN(FTPPC_MEMORY_ERROR);
+        return FTPPC_MEMORY_ERROR;
       }
       feed_length = str_convert(cs, feed, feed_length, uc, cv, cv_length, NULL);
       feed = cv;
@@ -222,7 +220,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
     char* nm = my_malloc(nm_length, MYF(MY_WME));
     if(!nm){
       if(feed_req_free){ my_free(feed); }
-      DBUG_RETURN(FTPPC_MEMORY_ERROR);
+      return FTPPC_MEMORY_ERROR;
     }
     int mode = UNORM_NONE;
     int options = 0;
@@ -239,7 +237,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
         fflush(stderr);
         
         if(feed_req_free){ my_free(feed); }
-        DBUG_RETURN(FTPPC_NORMALIZATION_ERROR);
+        return FTPPC_NORMALIZATION_ERROR;
       }else if(nm_used > nm_length){
         nm_length = nm_used + 8;
         char *tmp = my_realloc(nm, nm_length, MYF(MY_WME));
@@ -248,7 +246,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
         }else{
           if(feed_req_free){ my_free(feed); }
           my_free(nm);
-          DBUG_RETURN(FTPPC_MEMORY_ERROR);
+          return FTPPC_MEMORY_ERROR;
         }
         nm_used = uni_normalize(feed, feed_length, nm, nm_length, mode, options);
         if(nm_used == 0){
@@ -257,7 +255,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
           
           if(feed_req_free){ my_free(feed); }
           my_free(nm);
-          DBUG_RETURN(FTPPC_NORMALIZATION_ERROR);
+          return FTPPC_NORMALIZATION_ERROR;
         }
       }
       if(feed_req_free){ my_free(feed); }
@@ -277,7 +275,7 @@ static int space_parser_parse(MYSQL_FTPARSER_PARAM *param)
   }
   if(feed_req_free) my_free(feed);
   
-  DBUG_RETURN(code);
+  return code;
 }
 
 static char* add_token(MYSQL_FTPARSER_PARAM *param, char* feed, size_t feed_length, CHARSET_INFO *cs, MYSQL_FTPARSER_BOOLEAN_INFO *instinfo, int feed_realloc,
@@ -353,7 +351,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
   MYSQL_FTPARSER_BOOLEAN_INFO instinfo = { FT_TOKEN_WORD, 0, 0, 0, 0, ' ', 0 };
   MYSQL_FTPARSER_BOOLEAN_INFO *info_may = (MYSQL_FTPARSER_BOOLEAN_INFO*)my_malloc(sizeof(MYSQL_FTPARSER_BOOLEAN_INFO), MYF(MY_WME));
   if(!info_may){
-    DBUG_RETURN(FTPPC_MEMORY_ERROR);
+    return FTPPC_MEMORY_ERROR;
   }
   *info_may = instinfo;
   LIST *infos = NULL;
@@ -411,7 +409,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
       if(!tmp){
         list_free(infos, 1);
         ftstring_destroy(pbuffer);
-        DBUG_RETURN(FTPPC_MEMORY_ERROR);
+        return FTPPC_MEMORY_ERROR;
       }
       *tmp = instinfo;
       list_push(infos, tmp);
@@ -428,7 +426,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
       if(!tmp){
         list_free(infos, 1);
         ftstring_destroy(pbuffer);
-        DBUG_RETURN(FTPPC_MEMORY_ERROR);
+        return FTPPC_MEMORY_ERROR;
       }
       *tmp = instinfo;
       list_push(infos, tmp);
@@ -446,7 +444,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
       if(tmp){ my_free(tmp); }
       list_pop(infos);
       if(!infos){
-        DBUG_RETURN(FTPPC_SYNTAX_ERROR);
+        return FTPPC_SYNTAX_ERROR;
       } // must not reach the base info_may level.
       instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
     }
@@ -462,7 +460,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
       if(tmp){ my_free(tmp); }
       list_pop(infos);
       if(!infos){
-        DBUG_RETURN(FTPPC_SYNTAX_ERROR);
+        return FTPPC_SYNTAX_ERROR;
       } // must not reach the base info_may level.
       instinfo = *((MYSQL_FTPARSER_BOOLEAN_INFO*)infos->data);
     }
@@ -492,7 +490,7 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
   if(trans){ my_free(trans); }
   list_free(infos, 1);
   ftstring_destroy(pbuffer);
-  DBUG_RETURN(0);
+  return 0;
 }
 
 static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, int feed_length, CHARSET_INFO *cs, int feed_req_free){
@@ -559,7 +557,7 @@ static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, i
   }
   if(trans){ my_free(trans); }
   ftstring_destroy(pbuffer);
-  DBUG_RETURN(0);
+  return 0;
 }
 
 int space_unicode_version_check(MYSQL_THD thd, struct st_mysql_sys_var *var, void *save, struct st_mysql_value *value){

@@ -341,8 +341,6 @@ static char* add_token(MYSQL_FTPARSER_PARAM *param, char* feed, size_t feed_leng
 }
 
 static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, int feed_length, CHARSET_INFO *cs, int feed_req_free){
-  DBUG_ENTER("space_parser_parse_boolean");
-  
   FTSTRING buffer = {NULL, 0, NULL, 0, 0};
   FTSTRING *pbuffer = &buffer;
   
@@ -494,8 +492,6 @@ static int space_parser_parse_boolean(MYSQL_FTPARSER_PARAM *param, char* feed, i
 }
 
 static int space_parser_parse_natural(MYSQL_FTPARSER_PARAM *param, char* feed, int feed_length, CHARSET_INFO *cs, int feed_req_free){
-  DBUG_ENTER("space_parser_parse_natural");
-  
   // Natural mode query / Indexing or MYSQL_FTPARSER_WITH_STOPWORDS
   FTSTRING buffer = {NULL, 0, NULL, 0, 0};
   FTSTRING *pbuffer = &buffer;
